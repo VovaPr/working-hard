@@ -1,3 +1,6 @@
+USE master;
+GO
+
 DECLARE @TableName NVARCHAR(128) = 'Entity';
 DECLARE @DatabaseName NVARCHAR(128);
 DECLARE @TableCount INT;

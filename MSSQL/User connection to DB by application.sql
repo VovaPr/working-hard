@@ -1,3 +1,6 @@
+USE master;
+GO
+
 SELECT
                DB_NAME(dbid) as DBName,
                COUNT(dbid) as NumberOfConnections,
@@ -13,7 +16,9 @@ order by count(dbid) desc;
 
 -----------------------------------------------------------------------------------------
 
-use master
+USE master;
+GO
+
 Select count(*)
 from sysprocesses
 where spid > 50

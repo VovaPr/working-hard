@@ -1,3 +1,6 @@
+USE master;
+GO
+
 SELECT TOP (50) m.type
 	,m.id
 	,m.name
