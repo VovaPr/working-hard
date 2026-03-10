@@ -1,0 +1,230 @@
+[
+  {
+    "palette": 252,
+    "width": 600,
+    "height": 338,
+    "frames": 289,
+    "fast_size": 9.87,
+    "med_size": 15.69,
+    "scale": 0.553,
+    "timestamp": 1773139000,
+    "count": 3
+  },
+  {
+    "palette": 256,
+    "width": 600,
+    "height": 338,
+    "frames": 289,
+    "fast_size": 9.2869873046875,
+    "med_size": 14.705061912536621,
+    "scale": 0.731,
+    "timestamp": 1773148795.426499,
+    "count": 3
+  },
+  {
+    "palette": 256,
+    "width": 800,
+    "height": 1024,
+    "frames": 134,
+    "fast_size": 42.061076164245605,
+    "med_size": 14.526891708374023,
+    "scale": 0.47516605419701885,
+    "timestamp": 1773180591.150604,
+    "count": 2
+  },
+  {
+    "palette": 256,
+    "width": 700,
+    "height": 394,
+    "frames": 113,
+    "fast_size": 11.471577644348145,
+    "med_size": 14.448846817016602,
+    "scale": 0.794198703579037,
+    "timestamp": 1773151359.3986263,
+    "count": 3
+  },
+  {
+    "palette": 249,
+    "width": 600,
+    "height": 442,
+    "frames": 150,
+    "fast_size": 9.028914451599121,
+    "med_size": 14.355230331420898,
+    "scale": 0.7208292077444552,
+    "timestamp": 1773151780.7443328,
+    "count": 2
+  },
+  {
+    "palette": 231,
+    "width": 339,
+    "height": 550,
+    "frames": 209,
+    "fast_size": 11.682001113891602,
+    "med_size": 14.247573852539062,
+    "scale": 0.7367010478087678,
+    "timestamp": 1773152273.4332583,
+    "count": 2
+  },
+  {
+    "palette": 255,
+    "width": 550,
+    "height": 309,
+    "frames": 258,
+    "fast_size": 8.77424144744873,
+    "med_size": 14.315742492675781,
+    "scale": 0.6604516326145503,
+    "timestamp": 1773153287.7617507,
+    "count": 2
+  },
+  {
+    "palette": 76,
+    "width": 1280,
+    "height": 720,
+    "frames": 240,
+    "fast_size": 11.796942710876465,
+    "med_size": 13.79179573059082,
+    "scale": 0.37042003023851783,
+    "timestamp": 1773155367.9152234,
+    "count": 3
+  },
+  {
+    "palette": 256,
+    "width": 448,
+    "height": 800,
+    "frames": 109,
+    "fast_size": 10.30955982208252,
+    "med_size": 14.53482723236084,
+    "scale": 0.7707177489549549,
+    "timestamp": 1773164524.699517,
+    "count": 2
+  },
+  {
+    "palette": 253,
+    "width": 500,
+    "height": 900,
+    "frames": 78,
+    "fast_size": 7.559122085571289,
+    "med_size": 14.55214786529541,
+    "scale": 0.8242288319092376,
+    "timestamp": 1773164778.7519627,
+    "count": 2
+  },
+  {
+    "palette": 256,
+    "width": 600,
+    "height": 433,
+    "frames": 156,
+    "fast_size": 7.424838066101074,
+    "med_size": 14.226385116577148,
+    "scale": 0.6832960757088862,
+    "timestamp": 1773164903.3199153,
+    "count": 2
+  },
+  {
+    "palette": 256,
+    "width": 720,
+    "height": 720,
+    "frames": 80,
+    "fast_size": 8.584207534790039,
+    "med_size": 14.473897933959961,
+    "scale": 0.7934330130747858,
+    "timestamp": 1773165266.5256765,
+    "count": 2
+  },
+  {
+    "palette": 256,
+    "width": 600,
+    "height": 338,
+    "frames": 198,
+    "fast_size": 22.645444869995117,
+    "med_size": 14.40853500366211,
+    "scale": 0.7334001885854741,
+    "timestamp": 1773168380.271027,
+    "count": 2
+  },
+  {
+    "palette": 254,
+    "width": 600,
+    "height": 383,
+    "frames": 164,
+    "fast_size": 20.408141136169434,
+    "med_size": 14.129044532775879,
+    "scale": 0.735702063046631,
+    "timestamp": 1773168703.2085574
+  },
+  {
+    "palette": 256,
+    "width": 600,
+    "height": 447,
+    "frames": 99,
+    "fast_size": 15.486824989318848,
+    "med_size": 13.935063362121582,
+    "scale": 0.8548701289354559,
+    "timestamp": 1773169974.6234953,
+    "count": 2
+  },
+  {
+    "palette": 256,
+    "width": 500,
+    "height": 324,
+    "frames": 233,
+    "fast_size": 22.48228931427002,
+    "med_size": 13.986777305603027,
+    "scale": 0.6912241541895385,
+    "timestamp": 1773170963.2345846,
+    "count": 2
+  },
+  {
+    "palette": 246,
+    "width": 570,
+    "height": 321,
+    "frames": 234,
+    "fast_size": 23.254694938659668,
+    "med_size": 13.808841705322266,
+    "scale": 0.6795161707085401,
+    "timestamp": 1773174389.2830045,
+    "count": 2
+  },
+  {
+    "palette": 256,
+    "width": 700,
+    "height": 582,
+    "frames": 102,
+    "fast_size": 23.167489051818848,
+    "med_size": 14.745309829711914,
+    "scale": 0.7248958516550821,
+    "timestamp": 1773174449.0608397
+  },
+  {
+    "palette": 256,
+    "width": 800,
+    "height": 450,
+    "frames": 105,
+    "fast_size": 21.23863124847412,
+    "med_size": 13.840422630310059,
+    "scale": 0.725236211925883,
+    "timestamp": 1773175086.0744746,
+    "count": 2
+  },
+  {
+    "palette": 256,
+    "width": 514,
+    "height": 600,
+    "frames": 83,
+    "fast_size": 15.988903045654297,
+    "med_size": 13.98504638671875,
+    "scale": 0.8288361324220402,
+    "timestamp": 1773177461.8716843,
+    "count": 2
+  },
+  {
+    "palette": 256,
+    "width": 800,
+    "height": 1422,
+    "frames": 80,
+    "fast_size": 27.96923828125,
+    "med_size": 14.126891136169434,
+    "scale": 0.49835908882549507,
+    "timestamp": 1773177873.3902547
+  }
+]
