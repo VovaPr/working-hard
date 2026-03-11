@@ -9,7 +9,7 @@ ROOT_FOLDER_PATH = r"C:\other\lab\pic"
 # -------------------------------
 # Global Constants
 # -------------------------------
-VERSION = "Compressor v8.49.0"
+VERSION = "Compressor v8.50.0"
 STATS_FILE = os.path.join(os.path.dirname(__file__), "CompressorStats.JSON")
 
 # JPG settings
@@ -439,6 +439,15 @@ def balanced_compress_gif(input_path, target_min_mb=13.5, target_max_mb=14.99,
             print(f"{VERSION} | Δ vs FASTOCTREE = {med_size - fast_size:+.2f} MB")
 
             # --- Decision ---
+            if iteration >= 1 and 13.8 <= med_size <= 14.6:
+                print(f"{VERSION} | Early accept after iteration {iteration+1} in preferred corridor 13.8-14.6 MB")
+                stats_mgr.save_stats(palette_limit, width, height, total_frames, init_size, med_size, scale)
+                with open(input_path, "wb") as f:
+                    f.write(buf_med.getvalue())
+                elapsed = time.time() - start_time
+                print(f"{VERSION} | ✅ Success: {init_size:.2f} MB → {med_size:.2f} MB (after {iteration+1} iterations, {elapsed:.2f} sec total)")
+                return
+
             if target_min_mb <= med_size <= target_max_mb:
                 # early accept without running optimize=true if already within upper bound
                 if med_size <= target_max_mb:
