@@ -9,7 +9,7 @@ ROOT_FOLDER_PATH = r"C:\other\lab\pic"
 # -------------------------------
 # Global Constants
 # -------------------------------
-VERSION = "Compressor v8.50.0"
+VERSION = "Compressor v8.51.0"
 STATS_FILE = os.path.join(os.path.dirname(__file__), "CompressorStats.JSON")
 
 # JPG settings
@@ -408,7 +408,9 @@ def balanced_compress_gif(input_path, target_min_mb=13.5, target_max_mb=14.99,
                 # FASTOCTREE is small relative to target → expect large delta
                 # reduce scale to get closer to target on first try
                 adj_scale = scale * (target_mid / (fast_size + 4.0)) ** 0.5 if source == "neighbor stats" else scale
-                if abs(adj_scale - scale) < 0.05:  # only apply if small adjustment
+                # guard: skip if adj_scale is already a known result or lands at the current high bound
+                # (prevents the secant→micro-adjust→same-high_scale oscillation loop)
+                if abs(adj_scale - scale) < 0.05 and adj_scale not in scale_cache and abs(adj_scale - high_scale) > 0.02:
                     print(f"{VERSION} | Micro-adjusting scale {scale:.3f} → {adj_scale:.3f} based on FASTOCTREE baseline")
                     scale = adj_scale
                     resized_frames = resize_frames(frames_raw, width, height, scale)
