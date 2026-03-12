@@ -1,10 +1,17 @@
-﻿import io, json, os, subprocess, time
+﻿import io, json, os, subprocess, sys, time
 from dataclasses import dataclass, field
 from concurrent.futures import ProcessPoolExecutor
 
 from PIL import Image, ImageSequence, UnidentifiedImageError
 
 start_time = time.time()
+
+# =============================================================================
+# GOAL: reliably compress GIF files to the target size of 13.5–14.99 MB
+# in 30 seconds on average, without quality degradation.
+# Strategy: accurate initial scale prediction from historical run stats
+# → at most 1–2 MEDIANCUT calls per file.
+# =============================================================================
 
 
 @dataclass(frozen=True)
@@ -15,6 +22,7 @@ class JPGConfig:
 
 @dataclass(frozen=True)
 class GIFConfig:
+    """GIF compression parameters. Change values only here — used everywhere in the code."""
     target_min_mb: float = 13.5
     target_max_mb: float = 14.99
     preferred_min_mb: float = 13.8
@@ -27,7 +35,7 @@ class GIFConfig:
 
 @dataclass(frozen=True)
 class AppConfig:
-    version: str = "Compressor v8.53.0"
+    version: str = "Compressor v8.55.0"
     root_folder_path: str = r"C:\other\lab\pic"
     stats_file: str = field(default_factory=lambda: os.path.join(os.path.dirname(__file__), "CompressorStats.JSON"))
     jpg: JPGConfig = field(default_factory=JPGConfig)
@@ -42,6 +50,27 @@ VERSION = CONFIG.version
 STATS_FILE = CONFIG.stats_file
 TARGET_SIZE = CONFIG.jpg.target_size
 QUALITY_MAX = CONFIG.jpg.quality_max
+
+
+def _parse_log_level(argv):
+    """Read optional CLI argument: log=INFO|DEBUG (or --log=INFO|DEBUG)."""
+    level = "INFO"
+    for arg in argv[1:]:
+        lower = arg.lower()
+        if lower.startswith("log="):
+            level = arg.split("=", 1)[1].strip().upper()
+        elif lower.startswith("--log="):
+            level = arg.split("=", 1)[1].strip().upper()
+
+    return level if level in {"INFO", "DEBUG"} else "INFO"
+
+
+LOG_LEVEL = _parse_log_level(sys.argv)
+
+
+def debug_log(message):
+    if LOG_LEVEL == "DEBUG":
+        print(f"{VERSION} | Debug | {message}")
 
 
 def process_images(root_folder_path):
@@ -99,6 +128,7 @@ def process_images(root_folder_path):
 
 
 def compress_until_under_target(path, target_size=TARGET_SIZE):
+    """Iteratively reduces JPEG quality (and resolution if needed) until target_size is reached."""
     local_version = "Converter to JPG v2.4.4"
     started_at = time.time()
 
@@ -153,6 +183,14 @@ def compress_until_under_target(path, target_size=TARGET_SIZE):
 
 
 class CompressorStatsManager:
+    """
+    Persists successful compression history in a JSON file and provides
+    methods to predict the optimal scale for a new file:
+      - average_scale_recent: recency-weighted mean (recent runs weighted higher)
+      - neighbor_scale:        mean across similar files (close size/resolution/frames)
+      - regression_coefficients: linear regression fast_size → med_size
+      - predict_mediancut:    estimates post-MEDIANCUT size before running it
+    """
     def __init__(self, stats_file):
         self.stats_file = stats_file
         self.stats = []
@@ -200,6 +238,21 @@ class CompressorStatsManager:
         matches = self._filter_matches(palette, width, height, frames)
         scales = [entry["scale"] for entry in matches if entry.get("scale", 0) > 0]
         return (sum(scales) / len(scales)) if scales else None
+
+    def average_scale_recent(self, palette, width, height, frames, decay_half_life=86400.0):
+        """Recency-weighted average scale (recent runs count more; half-life = 1 day by default)."""
+        matches = self._filter_matches(palette, width, height, frames)
+        now = time.time()
+        weighted_sum = 0.0
+        weight_total = 0.0
+        for entry in matches:
+            if entry.get("scale", 0) <= 0:
+                continue
+            age = now - entry.get("timestamp", now)
+            weight = 2.0 ** (-age / decay_half_life)
+            weighted_sum += entry["scale"] * weight
+            weight_total += weight
+        return (weighted_sum / weight_total) if weight_total > 0 else None
 
     def find_delta(self, palette, width, height, frames):
         matches = self._filter_matches(palette, width, height, frames)
@@ -326,6 +379,11 @@ def _run_fastoctree_trial(
     fast_cache,
     stage_tag="base",
 ):
+    """
+    Fast probe run using FASTOCTREE quantization.
+    Result is cached by scale: a repeated call with the same scale is free.
+    Used to estimate output size before launching the expensive MEDIANCUT pass.
+    """
     resized_frames = resize_frames(frames_raw, width, height, scale)
     key = _scale_key(scale)
 
@@ -344,7 +402,14 @@ def _run_fastoctree_trial(
 
 
 def _choose_initial_scale(stats_mgr, palette_limit, width, height, total_frames, init_size, target_mid, bias_factor):
-    avg_scale = stats_mgr.average_scale(palette_limit, width, height, total_frames)
+    """
+    Selects the initial scale from the best available source (priority by descending accuracy):
+      1. stats         — recency-weighted mean from history for this exact file
+      2. neighbor stats — mean from similar files
+      3. delta_avg     — scale derived from average fast→med size delta
+      4. formula       — approximate scale from file size ratio
+    """
+    avg_scale = stats_mgr.average_scale_recent(palette_limit, width, height, total_frames)
     delta_avg = stats_mgr.find_delta(palette_limit, width, height, total_frames)
     neighbor_scale = stats_mgr.neighbor_scale(palette_limit, width, height, total_frames)
 
@@ -355,12 +420,16 @@ def _choose_initial_scale(stats_mgr, palette_limit, width, height, total_frames,
     if delta_avg is not None:
         predicted_medcut = init_size + delta_avg * bias_factor
         scale_from_delta = (target_mid / predicted_medcut) ** 0.5
-        return scale_from_delta * 0.95, "delta_avg (conservative)"
+        return scale_from_delta * 0.97, "delta_avg (conservative)"
     scale_from_formula = (target_mid / (init_size * bias_factor)) ** 0.5
-    return scale_from_formula * 0.90, "formula (conservative)"
+    return scale_from_formula * 0.95, "formula (conservative)"
 
 
 def _next_scale(scale, low_scale, high_scale, med_cache, target_mid, max_step_ratio):
+    """
+    Computes the next scale: binary search with step size capped at max_step_ratio.
+    When two points exist in med_cache, applies the secant method for faster convergence.
+    """
     new_scale = (low_scale + high_scale) / 2
 
     if abs(new_scale - scale) > scale * max_step_ratio:
@@ -381,6 +450,14 @@ def _next_scale(scale, low_scale, high_scale, med_cache, target_mid, max_step_ra
 
 
 def balanced_compress_gif(input_path, gif_cfg=CONFIG.gif):
+    """
+    Core GIF compression algorithm. Iteratively finds the right scale factor:
+      1. FASTOCTREE probe (cheap, ~1 sec)  → size estimate
+      2. MEDIANCUT       (quality, ~8-15 sec) → exact size after quantization
+      3. If result is within the target range — save and return
+      4. Otherwise — narrow [low_scale, high_scale] and continue
+    Loop protection: one-shot micro_adjust + stall-guard on (scale, med_size) signature.
+    """
     started_at = time.time()
 
     frames_raw, durations = [], []
@@ -398,8 +475,11 @@ def balanced_compress_gif(input_path, gif_cfg=CONFIG.gif):
             frames_raw.append(frame.convert("RGB"))
             durations.append(frame.info.get("duration", 100))
 
+    # Strictly use only half the CPUs: MEDIANCUT is memory-intensive per frame,
+    # using all cores causes RAM pressure and can slow down the whole system.
     workers = max(1, (os.cpu_count() or 4) // 2)
     print(f"{VERSION} | Using {workers} workers for {total_frames} frames")
+    debug_log(f"log_level={LOG_LEVEL} | max_safe_iterations={gif_cfg.max_safe_iterations}")
 
     target_mid = (gif_cfg.target_min_mb + gif_cfg.target_max_mb) / 2
     bias_factor = 1.1 + 0.05 * (palette_limit / 256.0)
@@ -422,6 +502,9 @@ def balanced_compress_gif(input_path, gif_cfg=CONFIG.gif):
     high_scale = 4.0
     fast_cache = {}
     med_cache = {}
+    micro_adjust_used = False
+    stall_count = 0
+    last_signature = None
 
     with ProcessPoolExecutor(max_workers=workers) as executor:
         for iteration in range(gif_cfg.max_safe_iterations):
@@ -459,6 +542,7 @@ def balanced_compress_gif(input_path, gif_cfg=CONFIG.gif):
             print(f"{VERSION} | -> Predicted MEDIANCUT={predicted_medcut:.2f} MB | scale={scale:.3f} (source: {source})")
 
             if iteration == 0 and source != "stats" and fast_size < target_mid * 0.85:
+                debug_log("decision=pre_correction | reason=iter0 and fast below 0.85*target_mid")
                 scale *= 0.92
                 print(f"{VERSION} | Pre-correction (iter 0) -> scale={scale:.3f}")
                 resized_frames, fast_size = _run_fastoctree_trial(
@@ -473,10 +557,20 @@ def balanced_compress_gif(input_path, gif_cfg=CONFIG.gif):
                     stage_tag="corrected",
                 )
 
-            if source != "stats" and fast_size < target_mid * 0.9:
+            can_micro_adjust = (
+                source != "stats"
+                and fast_size < target_mid * 0.9
+                and not micro_adjust_used
+                and iteration <= 1
+                and high_scale >= 3.9
+                and stall_count < 1
+            )
+            if can_micro_adjust:
                 adj_scale = scale * (target_mid / (fast_size + 4.0)) ** 0.5 if source == "neighbor stats" else scale
                 if abs(adj_scale - scale) < 0.05:
+                    debug_log("decision=micro_adjust | reason=source!=stats and fast below 0.9*target_mid")
                     scale = adj_scale
+                    micro_adjust_used = True
                     print(f"{VERSION} | Micro-adjusting scale -> {scale:.3f}")
                     resized_frames, fast_size = _run_fastoctree_trial(
                         iteration=iteration,
@@ -494,6 +588,7 @@ def balanced_compress_gif(input_path, gif_cfg=CONFIG.gif):
             if scale_key in med_cache:
                 med_size, med_bytes = med_cache[scale_key]
                 print(f"{VERSION} | Step {iteration+1}.1 (cached) | MEDIANCUT={med_size:.2f} MB")
+                debug_log(f"cache=med | hit | key={scale_key}")
             else:
                 step_start = time.time()
                 buf_med, med_size = compress_med_cut(resized_frames, durations, palette_limit, executor, final=False)
@@ -501,6 +596,20 @@ def balanced_compress_gif(input_path, gif_cfg=CONFIG.gif):
                 med_cache[scale_key] = (med_size, med_bytes)
                 step_elapsed = time.time() - step_start
                 print(f"{VERSION} | Step {iteration+1}.1 | MEDIANCUT={med_size:.2f} MB | finished in {step_elapsed:.2f} sec")
+                debug_log(f"cache=med | miss | key={scale_key}")
+
+            pred_error = med_size - predicted_medcut
+            pred_error_pct = (pred_error / predicted_medcut * 100.0) if predicted_medcut > 0 else 0.0
+            debug_log(f"prediction_error={pred_error:+.2f} MB ({pred_error_pct:+.2f}%)")
+
+            signature = (_scale_key(scale), round(med_size, 2))
+            if signature == last_signature:
+                stall_count += 1
+            else:
+                stall_count = 0
+                last_signature = signature
+            if stall_count >= 2:
+                debug_log("stall_guard=active | repeated (scale, med_size) signature")
 
             print(f"{VERSION} | Delta vs FASTOCTREE = {med_size - fast_size:+.2f} MB")
 
@@ -541,6 +650,7 @@ def balanced_compress_gif(input_path, gif_cfg=CONFIG.gif):
 
 
 def process_gifs(root_folder):
+    """Recursively walks the folder and calls balanced_compress_gif for GIF files larger than min_process_size_mb."""
     for root, _, files in os.walk(root_folder):
         for file in files:
             if not file.lower().endswith(".gif"):
@@ -558,6 +668,7 @@ def process_gifs(root_folder):
 
 
 if __name__ == "__main__":
+    print(f"{VERSION} | Log level: {LOG_LEVEL} (log=INFO|DEBUG)")
     process_images(ROOT_FOLDER_PATH)
     process_gifs(ROOT_FOLDER_PATH)
 
