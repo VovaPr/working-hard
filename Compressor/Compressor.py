@@ -35,7 +35,7 @@ class GIFConfig:
 
 @dataclass(frozen=True)
 class AppConfig:
-    version: str = "Compressor v8.55.0"
+    version: str = "Compressor v8.55.2"
     root_folder_path: str = r"C:\other\lab\pic"
     stats_file: str = field(default_factory=lambda: os.path.join(os.path.dirname(__file__), "CompressorStats.JSON"))
     jpg: JPGConfig = field(default_factory=JPGConfig)
@@ -126,10 +126,12 @@ def process_images(root_folder_path):
                         worked = True
                     compress_until_under_target(jpg_path)
 
+    return worked
+
 
 def compress_until_under_target(path, target_size=TARGET_SIZE):
     """Iteratively reduces JPEG quality (and resolution if needed) until target_size is reached."""
-    local_version = "Converter to JPG v2.4.4"
+    local_version = VERSION
     started_at = time.time()
 
     try:
@@ -541,8 +543,14 @@ def balanced_compress_gif(input_path, gif_cfg=CONFIG.gif):
             predicted_medcut = _clamp_prediction(predicted_medcut, fast_size)
             print(f"{VERSION} | -> Predicted MEDIANCUT={predicted_medcut:.2f} MB | scale={scale:.3f} (source: {source})")
 
-            if iteration == 0 and source != "stats" and fast_size < target_mid * 0.85:
-                debug_log("decision=pre_correction | reason=iter0 and fast below 0.85*target_mid")
+            can_pre_correct = (
+                iteration == 0
+                and source in {"formula (conservative)", "delta_avg (conservative)"}
+                and fast_size < target_mid * 0.80
+                and predicted_medcut < gif_cfg.target_min_mb * 0.92
+            )
+            if can_pre_correct:
+                debug_log("decision=pre_correction | reason=iter0/formula_or_delta and prediction well below target")
                 scale *= 0.92
                 print(f"{VERSION} | Pre-correction (iter 0) -> scale={scale:.3f}")
                 resized_frames, fast_size = _run_fastoctree_trial(
@@ -558,7 +566,8 @@ def balanced_compress_gif(input_path, gif_cfg=CONFIG.gif):
                 )
 
             can_micro_adjust = (
-                source != "stats"
+                source == "neighbor stats"
+                and predicted_medcut < gif_cfg.target_min_mb
                 and fast_size < target_mid * 0.9
                 and not micro_adjust_used
                 and iteration <= 1
@@ -651,6 +660,7 @@ def balanced_compress_gif(input_path, gif_cfg=CONFIG.gif):
 
 def process_gifs(root_folder):
     """Recursively walks the folder and calls balanced_compress_gif for GIF files larger than min_process_size_mb."""
+    worked = False
     for root, _, files in os.walk(root_folder):
         for file in files:
             if not file.lower().endswith(".gif"):
@@ -661,14 +671,17 @@ def process_gifs(root_folder):
             if size_mb <= CONFIG.gif.min_process_size_mb:
                 continue
 
+            worked = True
+
             try:
                 balanced_compress_gif(gif_path)
             except Exception as e:
-                print(f"Error processing {gif_path}: {e}")
+                print(f"{VERSION} | Error processing {gif_path}: {e}")
+
+    return worked
 
 
 if __name__ == "__main__":
-    print(f"{VERSION} | Log level: {LOG_LEVEL} (log=INFO|DEBUG)")
     process_images(ROOT_FOLDER_PATH)
     process_gifs(ROOT_FOLDER_PATH)
 
