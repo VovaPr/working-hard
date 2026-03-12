@@ -35,7 +35,7 @@ class GIFConfig:
 
 @dataclass(frozen=True)
 class AppConfig:
-    version: str = "Compressor v8.55.2"
+    version: str = "Compressor v8.55.3"
     root_folder_path: str = r"C:\other\lab\pic"
     stats_file: str = field(default_factory=lambda: os.path.join(os.path.dirname(__file__), "CompressorStats.JSON"))
     jpg: JPGConfig = field(default_factory=JPGConfig)
@@ -79,46 +79,44 @@ def process_images(root_folder_path):
 
     for folder_path, _, filenames in os.walk(root_folder_path):
         for filename in filenames:
-            if not filename.lower().endswith(".png"):
-                continue
+            lower = filename.lower()
 
-            if not worked:
-                print(f"{VERSION} | Starting PNG->JPG conversion and compression")
-                worked = True
+            if lower.endswith(".png"):
+                if not worked:
+                    print(f"{VERSION} | Starting PNG->JPG conversion and compression")
+                    worked = True
 
-            png_path = os.path.join(folder_path, filename)
-            jpg_path = os.path.join(folder_path, filename.rsplit(".", 1)[0] + ".jpg")
+                png_path = os.path.join(folder_path, filename)
+                jpg_path = os.path.join(folder_path, filename.rsplit(".", 1)[0] + ".jpg")
 
-            try:
-                with Image.open(png_path) as img:
-                    png_size = os.path.getsize(png_path)
-                    print(f"{VERSION} | Initial File: {png_path}")
-                    print(f"{VERSION} | WxH={img.width}x{img.height} | Size={png_size/1024:.2f} KB")
+                try:
+                    with Image.open(png_path) as img:
+                        png_size = os.path.getsize(png_path)
+                        print(f"{VERSION} | Initial File: {png_path}")
+                        print(f"{VERSION} | WxH={img.width}x{img.height} | Size={png_size/1024:.2f} KB")
 
-                    img = img.convert("RGB")
-                    img.save(jpg_path, "JPEG", quality=100, optimize=True, progressive=True)
+                        img = img.convert("RGB")
+                        img.save(jpg_path, "JPEG", quality=100, optimize=True, progressive=True)
 
-                jpg_size = os.path.getsize(jpg_path)
-                print(f"{VERSION} | Final JPG Converted: {jpg_path}")
-                print(f"{VERSION} | Size={jpg_size/1024:.2f} KB")
+                    jpg_size = os.path.getsize(jpg_path)
+                    print(f"{VERSION} | Final JPG Converted: {jpg_path}")
+                    print(f"{VERSION} | Size={jpg_size/1024:.2f} KB")
 
-                os.remove(png_path)
+                    os.remove(png_path)
 
-                if jpg_size <= TARGET_SIZE:
-                    print(
-                        f"{VERSION} | ✅ Success: {png_size/1024:.2f} KB -> {jpg_size/1024:.2f} KB "
-                        "(no further compression needed)"
-                    )
-                    continue
+                    if jpg_size <= TARGET_SIZE:
+                        print(
+                            f"{VERSION} | ✅ Success: {png_size/1024:.2f} KB -> {jpg_size/1024:.2f} KB "
+                            "(no further compression needed)"
+                        )
+                        continue
 
-                compress_until_under_target(jpg_path)
+                    compress_until_under_target(jpg_path)
 
-            except UnidentifiedImageError:
-                print(f"{VERSION} | Skipped corrupted PNG: {png_path}")
+                except UnidentifiedImageError:
+                    print(f"{VERSION} | Skipped corrupted PNG: {png_path}")
 
-    for folder_path, _, filenames in os.walk(root_folder_path):
-        for filename in filenames:
-            if filename.lower().endswith((".jpg", ".jpeg")):
+            elif lower.endswith((".jpg", ".jpeg")):
                 jpg_path = os.path.join(folder_path, filename)
                 if os.path.getsize(jpg_path) > TARGET_SIZE:
                     if not worked:
@@ -661,6 +659,7 @@ def balanced_compress_gif(input_path, gif_cfg=CONFIG.gif):
 def process_gifs(root_folder):
     """Recursively walks the folder and calls balanced_compress_gif for GIF files larger than min_process_size_mb."""
     worked = False
+
     for root, _, files in os.walk(root_folder):
         for file in files:
             if not file.lower().endswith(".gif"):
