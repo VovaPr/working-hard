@@ -35,7 +35,7 @@ class GIFConfig:
 
 @dataclass(frozen=True)
 class AppConfig:
-    version: str = "Compressor v8.55.8"
+    version: str = "Compressor v8.55.10"
     root_folder_path: str = r"C:\other\lab\pic"
     stats_file: str = field(default_factory=lambda: os.path.join(os.path.dirname(__file__), "CompressorStats.JSON"))
     jpg: JPGConfig = field(default_factory=JPGConfig)
@@ -363,7 +363,7 @@ def _scale_key(scale):
 
 def _clamp_prediction(predicted_medcut, fast_size):
     min_pred = max(fast_size * 0.3, 0.1)
-    max_pred = fast_size * 1.6
+    max_pred = fast_size * 2.0
     return max(min(predicted_medcut, max_pred), min_pred)
 
 
@@ -548,7 +548,7 @@ def balanced_compress_gif(input_path, gif_cfg=CONFIG.gif):
 
             can_skip_first_med = (
                 iteration == 0
-                and source == "formula (conservative)"
+                and source in {"formula (conservative)", "neighbor stats"}
                 and predicted_medcut > gif_cfg.target_max_mb * 1.20
                 and fast_size > gif_cfg.target_max_mb * 0.90
             )
@@ -591,6 +591,53 @@ def balanced_compress_gif(input_path, gif_cfg=CONFIG.gif):
                     fast_cache=fast_cache,
                     stage_tag="corrected",
                 )
+
+            can_soft_preshrink_formula = (
+                iteration == 0
+                and source == "formula (conservative)"
+                and predicted_medcut > gif_cfg.target_max_mb * 0.985
+                and predicted_medcut <= gif_cfg.target_max_mb * 1.20
+                and fast_size > gif_cfg.target_max_mb * 0.80
+            )
+            if can_soft_preshrink_formula:
+                # Cheap pre-adjustment to avoid a borderline overshoot (e.g. 15.00 MB) on cold starts.
+                suggested_scale = scale * (target_mid / predicted_medcut) ** 0.5 if predicted_medcut > 0 else scale
+                suggested_scale *= 0.99
+
+                max_soft_step_ratio = 0.12
+                max_soft_step = scale * max_soft_step_ratio
+                if abs(suggested_scale - scale) > max_soft_step:
+                    direction = 1 if suggested_scale > scale else -1
+                    suggested_scale = scale + direction * max_soft_step
+
+                if low_scale < suggested_scale < high_scale and abs(suggested_scale - scale) > 0.005:
+                    debug_log("decision=soft_pre_shrink | reason=formula near upper target bound")
+                    scale = suggested_scale
+                    print(f"{VERSION} | Soft pre-shrink (iter 0) -> scale={scale:.3f}")
+                    resized_frames, fast_size = _run_fastoctree_trial(
+                        iteration=iteration,
+                        scale=scale,
+                        frames_raw=frames_raw,
+                        width=width,
+                        height=height,
+                        palette_limit=palette_limit,
+                        durations=durations,
+                        fast_cache=fast_cache,
+                        stage_tag="soft-corrected",
+                    )
+                    predicted_medcut = stats_mgr.predict_mediancut(
+                        palette_limit,
+                        width,
+                        height,
+                        total_frames,
+                        fast_size,
+                        bias_factor,
+                    )
+                    predicted_medcut = _clamp_prediction(predicted_medcut, fast_size)
+                    print(
+                        f"{VERSION} | -> Updated predicted MEDIANCUT={predicted_medcut:.2f} MB "
+                        f"| scale={scale:.3f}"
+                    )
 
             can_micro_adjust = (
                 source == "neighbor stats"
@@ -660,7 +707,7 @@ def balanced_compress_gif(input_path, gif_cfg=CONFIG.gif):
                 iteration >= 1
                 and gif_cfg.preferred_min_mb <= med_size <= gif_cfg.preferred_max_mb
             )
-            in_target = gif_cfg.target_min_mb <= med_size <= gif_cfg.target_max_mb
+            in_target = gif_cfg.target_min_mb <= med_size <= gif_cfg.target_max_mb + 0.005
 
             if in_preferred_corridor or in_target:
                 stats_mgr.save_stats(palette_limit, width, height, total_frames, fast_size, med_size, scale)
