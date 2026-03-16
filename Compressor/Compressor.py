@@ -35,7 +35,7 @@ class GIFConfig:
 
 @dataclass(frozen=True)
 class AppConfig:
-    version: str = "Compressor v8.55.3"
+    version: str = "Compressor v8.55.8"
     root_folder_path: str = r"C:\other\lab\pic"
     stats_file: str = field(default_factory=lambda: os.path.join(os.path.dirname(__file__), "CompressorStats.JSON"))
     jpg: JPGConfig = field(default_factory=JPGConfig)
@@ -522,12 +522,17 @@ def balanced_compress_gif(input_path, gif_cfg=CONFIG.gif):
 
             fast_in_preferred = gif_cfg.preferred_min_mb <= fast_size <= gif_cfg.preferred_max_mb
             if iteration >= 1 and fast_in_preferred:
+                # Persist exactly the quantized FASTOCTREE result, not raw resized RGB frames.
+                frames_fast = [process_frame_fast_octree(fr, palette_limit) for fr in resized_frames]
+                buf_fast, fast_saved_size = save_gif(frames_fast, durations, optimize=False)
                 stats_mgr.save_stats(palette_limit, width, height, total_frames, fast_size, fast_size, scale)
                 with open(input_path, "wb") as f:
-                    buf_fast, _ = save_gif(resized_frames, durations, optimize=True)
                     f.write(buf_fast.getvalue())
                 elapsed = time.time() - started_at
-                print(f"{VERSION} | ✅ Success (fast): {init_size:.2f} MB -> {fast_size:.2f} MB (after {iteration+1} iterations, {elapsed:.2f} sec total)")
+                print(
+                    f"{VERSION} | ✅ Success (fast): {init_size:.2f} MB -> {fast_saved_size:.2f} MB "
+                    f"(after {iteration+1} iterations, {elapsed:.2f} sec total)"
+                )
                 return
 
             predicted_medcut = stats_mgr.predict_mediancut(
@@ -541,9 +546,33 @@ def balanced_compress_gif(input_path, gif_cfg=CONFIG.gif):
             predicted_medcut = _clamp_prediction(predicted_medcut, fast_size)
             print(f"{VERSION} | -> Predicted MEDIANCUT={predicted_medcut:.2f} MB | scale={scale:.3f} (source: {source})")
 
+            can_skip_first_med = (
+                iteration == 0
+                and source == "formula (conservative)"
+                and predicted_medcut > gif_cfg.target_max_mb * 1.20
+                and fast_size > gif_cfg.target_max_mb * 0.90
+            )
+            if can_skip_first_med:
+                debug_log("decision=skip_first_med | reason=formula prediction well above target")
+                high_scale = scale
+                suggested_scale = scale * (target_mid / predicted_medcut) ** 0.5 if predicted_medcut > 0 else scale
+
+                max_skip_step_ratio = 0.45
+                max_skip_step = scale * max_skip_step_ratio
+                if abs(suggested_scale - scale) > max_skip_step:
+                    direction = 1 if suggested_scale > scale else -1
+                    suggested_scale = scale + direction * max_skip_step
+
+                if not (low_scale < suggested_scale < high_scale):
+                    suggested_scale = (low_scale + high_scale) / 2
+
+                print(f"{VERSION} | Skipping MEDIANCUT on iter 1 (predicted too large) -> next scale={suggested_scale:.3f}")
+                scale = suggested_scale
+                continue
+
             can_pre_correct = (
                 iteration == 0
-                and source in {"formula (conservative)", "delta_avg (conservative)"}
+                and source in {"delta_avg (conservative)"}
                 and fast_size < target_mid * 0.80
                 and predicted_medcut < gif_cfg.target_min_mb * 0.92
             )
@@ -574,8 +603,15 @@ def balanced_compress_gif(input_path, gif_cfg=CONFIG.gif):
             )
             if can_micro_adjust:
                 adj_scale = scale * (target_mid / (fast_size + 4.0)) ** 0.5 if source == "neighbor stats" else scale
-                if abs(adj_scale - scale) < 0.05:
-                    debug_log("decision=micro_adjust | reason=source!=stats and fast below 0.9*target_mid")
+                if abs(adj_scale - scale) > 0.01:
+                    # Allow a meaningful correction, but cap the jump to keep stability.
+                    max_micro_step_ratio = min(0.30, gif_cfg.max_scale_step_ratio * 2.0)
+                    max_micro_step = scale * max_micro_step_ratio
+                    if abs(adj_scale - scale) > max_micro_step:
+                        direction = 1 if adj_scale > scale else -1
+                        adj_scale = scale + direction * max_micro_step
+
+                    debug_log("decision=micro_adjust | reason=neighbor_stats and fast below 0.9*target_mid")
                     scale = adj_scale
                     micro_adjust_used = True
                     print(f"{VERSION} | Micro-adjusting scale -> {scale:.3f}")
@@ -642,14 +678,29 @@ def balanced_compress_gif(input_path, gif_cfg=CONFIG.gif):
             else:
                 low_scale = scale
 
-            new_scale = _next_scale(
+            # Use measured MEDIANCUT size to jump closer to target midpoint.
+            adaptive_scale = scale
+            if med_size > 0:
+                adaptive_scale = scale * (target_mid / med_size) ** 0.5
+
+            max_adaptive_step_ratio = min(0.35, gif_cfg.max_scale_step_ratio * 2.5)
+            adaptive_step = scale * max_adaptive_step_ratio
+            if abs(adaptive_scale - scale) > adaptive_step:
+                direction = 1 if adaptive_scale > scale else -1
+                adaptive_scale = scale + direction * adaptive_step
+
+            adaptive_in_bracket = low_scale < adaptive_scale < high_scale
+            if adaptive_in_bracket:
+                new_scale = adaptive_scale
+            else:
+                new_scale = _next_scale(
                 scale=scale,
                 low_scale=low_scale,
                 high_scale=high_scale,
                 med_cache=med_cache,
                 target_mid=target_mid,
                 max_step_ratio=gif_cfg.max_scale_step_ratio,
-            )
+                )
             print(f"{VERSION} | Next scale={new_scale:.3f} (low={low_scale:.3f}, high={high_scale:.3f})")
             scale = new_scale
 
