@@ -31,11 +31,22 @@ class GIFConfig:
     extra_palette: int = 4
     min_process_size_mb: float = 15.0
     max_scale_step_ratio: float = 0.15
+    neighbor_scale_safety: float = 0.95
+    temporal_preserve_enabled: bool = True
+    temporal_min_frames: int = 360
+    temporal_max_pixels: int = 100000
+    temporal_max_keep_every: int = 3
+    quality_retry_small_res_enabled: bool = True
+    quality_retry_min_scale: float = 0.70
+    sample_probe_enabled: bool = True
+    sample_probe_max_frames: int = 36
+    fast_direct_accept_enabled: bool = True
+    fast_direct_min_frames: int = 120
 
 
 @dataclass(frozen=True)
 class AppConfig:
-    version: str = "Compressor v8.55.10"
+    version: str = "Compressor v8.55.17"
     root_folder_path: str = r"C:\other\lab\pic"
     stats_file: str = field(default_factory=lambda: os.path.join(os.path.dirname(__file__), "CompressorStats.JSON"))
     jpg: JPGConfig = field(default_factory=JPGConfig)
@@ -351,10 +362,71 @@ def resize_frames(frames_raw, width, height, scale):
     return [fr.resize((new_w, new_h), Image.LANCZOS) for fr in frames_raw]
 
 
+def temporal_reduce(frames, durations, keep_every):
+    """
+    Keep every N-th frame while preserving playback speed by accumulating durations.
+    This reduces GIF size without changing frame dimensions.
+    """
+    if keep_every <= 1:
+        return frames, durations
+
+    reduced_frames = []
+    reduced_durations = []
+
+    bucket_duration = 0
+    bucket_start_idx = None
+
+    for idx, (frame, dur) in enumerate(zip(frames, durations)):
+        if bucket_start_idx is None:
+            bucket_start_idx = idx
+            bucket_duration = 0
+
+        bucket_duration += dur
+        is_bucket_end = ((idx - bucket_start_idx + 1) >= keep_every)
+
+        if is_bucket_end:
+            reduced_frames.append(frames[bucket_start_idx])
+            reduced_durations.append(max(20, bucket_duration))
+            bucket_start_idx = None
+            bucket_duration = 0
+
+    if bucket_start_idx is not None:
+        reduced_frames.append(frames[bucket_start_idx])
+        reduced_durations.append(max(20, bucket_duration))
+
+    return reduced_frames, reduced_durations
+
+
 def compress_med_cut(frames, durations, palette_colors, executor, final=False):
     args = [(fr, palette_colors) for fr in frames]
     frames_q = list(executor.map(process_frame_med_cut, args))
     return save_gif(frames_q, durations, optimize=final)
+
+
+def _estimate_ratio_sample(frames, durations, palette_colors, executor, max_frames):
+    """
+    Fast quality probe: estimate MEDIANCUT/FASTOCTREE size ratio on a frame sample.
+    Used to avoid expensive full MEDIANCUT passes at obviously bad scales.
+    """
+    total = len(frames)
+    if total < 2:
+        return None
+
+    sample_n = max(2, min(max_frames, total))
+    stride = max(1, total // sample_n)
+    sample_frames = frames[::stride][:sample_n]
+    sample_durations = durations[::stride][:sample_n]
+
+    if len(sample_frames) < 2:
+        return None
+
+    sample_fast = [process_frame_fast_octree(fr, palette_colors) for fr in sample_frames]
+    _, fast_size = save_gif(sample_fast, sample_durations, optimize=False)
+    if fast_size <= 0:
+        return None
+
+    _, med_size = compress_med_cut(sample_frames, sample_durations, palette_colors, executor, final=False)
+    return med_size / fast_size
 
 
 def _scale_key(scale):
@@ -401,7 +473,7 @@ def _run_fastoctree_trial(
     return resized_frames, fast_size
 
 
-def _choose_initial_scale(stats_mgr, palette_limit, width, height, total_frames, init_size, target_mid, bias_factor):
+def _choose_initial_scale(stats_mgr, palette_limit, width, height, total_frames, init_size, target_mid, bias_factor, gif_cfg):
     """
     Selects the initial scale from the best available source (priority by descending accuracy):
       1. stats         — recency-weighted mean from history for this exact file
@@ -416,7 +488,10 @@ def _choose_initial_scale(stats_mgr, palette_limit, width, height, total_frames,
     if avg_scale:
         return avg_scale, "stats"
     if neighbor_scale:
-        return neighbor_scale, "neighbor stats"
+        # Neighbor-derived scale can be optimistic for unseen GIFs.
+        # A small safety shrink reduces expensive MEDIANCUT re-runs.
+        safe_neighbor_scale = neighbor_scale * gif_cfg.neighbor_scale_safety
+        return safe_neighbor_scale, f"neighbor stats (safe x{gif_cfg.neighbor_scale_safety:.2f})"
     if delta_avg is not None:
         predicted_medcut = init_size + delta_avg * bias_factor
         scale_from_delta = (target_mid / predicted_medcut) ** 0.5
@@ -447,6 +522,13 @@ def _next_scale(scale, low_scale, high_scale, med_cache, target_mid, max_step_ra
                 new_scale = secant_scale
 
     return new_scale
+
+
+def _print_gif_result_header(input_path, total_frames, palette_count, width, height):
+    print(
+        f"{VERSION} | file: {os.path.basename(input_path)} "
+        f"| Frames={total_frames} | Palette={palette_count} | WxH={width}x{height}"
+    )
 
 
 def balanced_compress_gif(input_path, gif_cfg=CONFIG.gif):
@@ -494,6 +576,7 @@ def balanced_compress_gif(input_path, gif_cfg=CONFIG.gif):
         init_size,
         target_mid,
         bias_factor,
+        gif_cfg,
     )
 
     print(f"{VERSION} | Prediction source: {source} -> initial scale={scale:.3f}")
@@ -505,6 +588,16 @@ def balanced_compress_gif(input_path, gif_cfg=CONFIG.gif):
     micro_adjust_used = False
     stall_count = 0
     last_signature = None
+
+    temporal_applied = False
+    quality_retry_done = False
+    sample_probe_done = False
+    sample_ratio = None
+    formula_extra_skip_used = False
+    small_res_high_frames = (
+        (width * height) <= gif_cfg.temporal_max_pixels
+        and total_frames >= gif_cfg.temporal_min_frames
+    )
 
     with ProcessPoolExecutor(max_workers=workers) as executor:
         for iteration in range(gif_cfg.max_safe_iterations):
@@ -521,6 +614,28 @@ def balanced_compress_gif(input_path, gif_cfg=CONFIG.gif):
             )
 
             fast_in_preferred = gif_cfg.preferred_min_mb <= fast_size <= gif_cfg.preferred_max_mb
+            fast_in_target = gif_cfg.target_min_mb <= fast_size <= gif_cfg.target_max_mb
+
+            can_fast_direct_accept = (
+                gif_cfg.fast_direct_accept_enabled
+                and iteration == 0
+                and fast_in_target
+                and total_frames >= gif_cfg.fast_direct_min_frames
+            )
+            if can_fast_direct_accept:
+                frames_fast = [process_frame_fast_octree(fr, palette_limit) for fr in resized_frames]
+                buf_fast, fast_saved_size = save_gif(frames_fast, durations, optimize=False)
+                stats_mgr.save_stats(palette_limit, width, height, total_frames, fast_size, fast_saved_size, scale)
+                with open(input_path, "wb") as f:
+                    f.write(buf_fast.getvalue())
+                elapsed = time.time() - started_at
+                _print_gif_result_header(input_path, total_frames, colors_first, width, height)
+                print(
+                    f"{VERSION} | ✅ Success (fast-direct): {init_size:.2f} MB -> {fast_saved_size:.2f} MB "
+                    f"(after {iteration+1} iterations, {elapsed:.2f} sec total)"
+                )
+                return
+
             if iteration >= 1 and fast_in_preferred:
                 # Persist exactly the quantized FASTOCTREE result, not raw resized RGB frames.
                 frames_fast = [process_frame_fast_octree(fr, palette_limit) for fr in resized_frames]
@@ -529,6 +644,7 @@ def balanced_compress_gif(input_path, gif_cfg=CONFIG.gif):
                 with open(input_path, "wb") as f:
                     f.write(buf_fast.getvalue())
                 elapsed = time.time() - started_at
+                _print_gif_result_header(input_path, total_frames, colors_first, width, height)
                 print(
                     f"{VERSION} | ✅ Success (fast): {init_size:.2f} MB -> {fast_saved_size:.2f} MB "
                     f"(after {iteration+1} iterations, {elapsed:.2f} sec total)"
@@ -544,18 +660,59 @@ def balanced_compress_gif(input_path, gif_cfg=CONFIG.gif):
                 bias_factor,
             )
             predicted_medcut = _clamp_prediction(predicted_medcut, fast_size)
+
+            if (
+                gif_cfg.sample_probe_enabled
+                and source == "formula (conservative)"
+                and not sample_probe_done
+                and iteration <= 1
+                and total_frames >= 120
+            ):
+                probe_start = time.time()
+                sample_ratio = _estimate_ratio_sample(
+                    resized_frames,
+                    durations,
+                    palette_limit,
+                    executor,
+                    gif_cfg.sample_probe_max_frames,
+                )
+                sample_probe_done = True
+                probe_elapsed = time.time() - probe_start
+                if sample_ratio and sample_ratio > 1.0:
+                    calibrated_prediction = fast_size * sample_ratio
+                    if calibrated_prediction > predicted_medcut:
+                        predicted_medcut = calibrated_prediction
+                    print(
+                        f"{VERSION} | Probe ratio (sample)={sample_ratio:.3f} "
+                        f"-> calibrated MEDIANCUT={predicted_medcut:.2f} MB "
+                        f"| finished in {probe_elapsed:.2f} sec"
+                    )
+
             print(f"{VERSION} | -> Predicted MEDIANCUT={predicted_medcut:.2f} MB | scale={scale:.3f} (source: {source})")
+
+            source_is_neighbor = source.startswith("neighbor stats")
 
             can_skip_first_med = (
                 iteration == 0
-                and source in {"formula (conservative)", "neighbor stats"}
+                and (source == "formula (conservative)" or source_is_neighbor)
                 and predicted_medcut > gif_cfg.target_max_mb * 1.20
                 and fast_size > gif_cfg.target_max_mb * 0.90
             )
-            if can_skip_first_med:
+            can_skip_formula_extra = (
+                iteration == 1
+                and source == "formula (conservative)"
+                and not formula_extra_skip_used
+                and sample_ratio is not None
+                and predicted_medcut > gif_cfg.target_max_mb * 1.10
+                and fast_size > gif_cfg.target_min_mb * 0.90
+            )
+            if can_skip_first_med or can_skip_formula_extra:
                 debug_log("decision=skip_first_med | reason=formula prediction well above target")
                 high_scale = scale
                 suggested_scale = scale * (target_mid / predicted_medcut) ** 0.5 if predicted_medcut > 0 else scale
+
+                if can_skip_formula_extra:
+                    formula_extra_skip_used = True
 
                 max_skip_step_ratio = 0.45
                 max_skip_step = scale * max_skip_step_ratio
@@ -640,16 +797,17 @@ def balanced_compress_gif(input_path, gif_cfg=CONFIG.gif):
                     )
 
             can_micro_adjust = (
-                source == "neighbor stats"
+                source_is_neighbor
                 and predicted_medcut < gif_cfg.target_min_mb
                 and fast_size < target_mid * 0.9
                 and not micro_adjust_used
                 and iteration <= 1
+                and total_frames >= 80
                 and high_scale >= 3.9
                 and stall_count < 1
             )
             if can_micro_adjust:
-                adj_scale = scale * (target_mid / (fast_size + 4.0)) ** 0.5 if source == "neighbor stats" else scale
+                adj_scale = scale * (target_mid / (fast_size + 4.0)) ** 0.5 if source_is_neighbor else scale
                 if abs(adj_scale - scale) > 0.01:
                     # Allow a meaningful correction, but cap the jump to keep stability.
                     max_micro_step_ratio = min(0.30, gif_cfg.max_scale_step_ratio * 2.0)
@@ -703,17 +861,110 @@ def balanced_compress_gif(input_path, gif_cfg=CONFIG.gif):
 
             print(f"{VERSION} | Delta vs FASTOCTREE = {med_size - fast_size:+.2f} MB")
 
+            can_try_temporal_preserve = (
+                gif_cfg.temporal_preserve_enabled
+                and not temporal_applied
+                and iteration == 0
+                and med_size > gif_cfg.target_max_mb
+                and total_frames >= gif_cfg.temporal_min_frames
+                and (width * height) <= gif_cfg.temporal_max_pixels
+                and scale < 0.85
+            )
+            if can_try_temporal_preserve:
+                target_ratio = med_size / target_mid if target_mid > 0 else 1.0
+                keep_every = max(2, min(gif_cfg.temporal_max_keep_every, int(round(target_ratio))))
+                t_frames, t_durations = temporal_reduce(frames_raw, durations, keep_every)
+
+                if len(t_frames) < len(frames_raw):
+                    t_start = time.time()
+                    t_resized = resize_frames(t_frames, width, height, 1.0)
+                    t_buf, t_med_size = compress_med_cut(t_resized, t_durations, palette_limit, executor, final=False)
+                    t_elapsed = time.time() - t_start
+                    print(
+                        f"{VERSION} | Temporal preserve probe | keep_every={keep_every} "
+                        f"| frames {len(frames_raw)}->{len(t_frames)} | MEDIANCUT={t_med_size:.2f} MB "
+                        f"| finished in {t_elapsed:.2f} sec"
+                    )
+
+                    if gif_cfg.target_min_mb <= t_med_size <= gif_cfg.target_max_mb + 0.005:
+                        stats_mgr.save_stats(palette_limit, width, height, total_frames, fast_size, t_med_size, 1.0)
+                        with open(input_path, "wb") as f:
+                            f.write(t_buf.getvalue())
+                        elapsed = time.time() - started_at
+                        _print_gif_result_header(input_path, total_frames, colors_first, width, height)
+                        print(
+                            f"{VERSION} | ✅ Success (temporal-preserve): {init_size:.2f} MB -> {t_med_size:.2f} MB "
+                            f"(after {iteration+1} iterations, {elapsed:.2f} sec total)"
+                        )
+                        return
+
+                    if t_med_size < med_size:
+                        # Rebase the search on temporally reduced frames to preserve dimensions.
+                        frames_raw = t_frames
+                        durations = t_durations
+                        total_frames = len(frames_raw)
+                        fast_cache.clear()
+                        med_cache.clear()
+                        low_scale = 0.01
+                        high_scale = min(high_scale, 1.0)
+                        scale = min(1.0, scale / 0.92)
+                        temporal_applied = True
+                        print(
+                            f"{VERSION} | Temporal preserve enabled -> continue with original WxH and "
+                            f"{total_frames} frames"
+                        )
+                        continue
+
             in_preferred_corridor = (
                 iteration >= 1
                 and gif_cfg.preferred_min_mb <= med_size <= gif_cfg.preferred_max_mb
             )
             in_target = gif_cfg.target_min_mb <= med_size <= gif_cfg.target_max_mb + 0.005
 
+            can_try_quality_retry = (
+                gif_cfg.quality_retry_small_res_enabled
+                and not quality_retry_done
+                and not temporal_applied
+                and iteration == 0
+                and in_target
+                and small_res_high_frames
+                and scale < gif_cfg.quality_retry_min_scale
+            )
+            if can_try_quality_retry:
+                quality_retry_done = True
+                target_ratio = med_size / target_mid if target_mid > 0 else 1.0
+                keep_every = max(2, min(gif_cfg.temporal_max_keep_every, int(round(target_ratio))))
+                q_frames, q_durations = temporal_reduce(frames_raw, durations, keep_every)
+
+                if len(q_frames) < len(frames_raw):
+                    q_start = time.time()
+                    q_resized = resize_frames(q_frames, width, height, 1.0)
+                    q_buf, q_med_size = compress_med_cut(q_resized, q_durations, palette_limit, executor, final=False)
+                    q_elapsed = time.time() - q_start
+                    print(
+                        f"{VERSION} | Quality retry (temporal) | keep_every={keep_every} "
+                        f"| frames {len(frames_raw)}->{len(q_frames)} | MEDIANCUT={q_med_size:.2f} MB "
+                        f"| finished in {q_elapsed:.2f} sec"
+                    )
+
+                    if gif_cfg.target_min_mb <= q_med_size <= gif_cfg.target_max_mb + 0.005:
+                        stats_mgr.save_stats(palette_limit, width, height, total_frames, fast_size, q_med_size, 1.0)
+                        with open(input_path, "wb") as f:
+                            f.write(q_buf.getvalue())
+                        elapsed = time.time() - started_at
+                        _print_gif_result_header(input_path, len(q_frames), colors_first, width, height)
+                        print(
+                            f"{VERSION} | ✅ Success (quality-preserve temporal): {init_size:.2f} MB -> {q_med_size:.2f} MB "
+                            f"(after {iteration+1} iterations, {elapsed:.2f} sec total)"
+                        )
+                        return
+
             if in_preferred_corridor or in_target:
                 stats_mgr.save_stats(palette_limit, width, height, total_frames, fast_size, med_size, scale)
                 with open(input_path, "wb") as f:
                     f.write(med_bytes)
                 elapsed = time.time() - started_at
+                _print_gif_result_header(input_path, total_frames, colors_first, width, height)
                 print(
                     f"{VERSION} | ✅ Success: {init_size:.2f} MB -> {med_size:.2f} MB "
                     f"(after {iteration+1} iterations, {elapsed:.2f} sec total)"
