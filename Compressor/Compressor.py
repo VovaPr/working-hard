@@ -64,7 +64,7 @@ class GIFConfig:
 
 @dataclass(frozen=True)
 class AppConfig:
-    version: str = "Compressor v8.55.43"
+    version: str = "Compressor v8.55.44"
     root_folder_path: str = r"C:\other\lab\pic"
     stats_file: str = field(default_factory=lambda: os.path.join(os.path.dirname(__file__), "CompressorStats.JSON"))
     stats_soft_limit_mb: float = 50.0
@@ -83,6 +83,8 @@ QUALITY_MAX = CONFIG.jpg.quality_max
 
 RUN_METRICS = {
     "scan_sec": 0.0,
+    "png_candidates": 0,
+    "jpg_candidates": 0,
     "static_webp_candidates": 0,
     "gif_candidates": 0,
     "animated_webp_candidates": 0,
@@ -153,6 +155,8 @@ def _is_animated_webp_fast(path):
 
 def scan_media_candidates(root_folder_path):
     """Single filesystem pass that classifies files for later processing."""
+    png_paths = []
+    jpg_paths = []
     static_webp_paths = []
     gif_paths = []
     animated_webp_paths = []
@@ -167,6 +171,15 @@ def scan_media_candidates(root_folder_path):
                 size_mb = os.path.getsize(file_path) / (1024 * 1024)
                 if size_mb > CONFIG.gif.min_process_size_mb:
                     gif_paths.append(file_path)
+                continue
+
+            if lower.endswith(".png"):
+                png_paths.append(file_path)
+                continue
+
+            if lower.endswith((".jpg", ".jpeg")):
+                if os.path.getsize(file_path) > TARGET_SIZE:
+                    jpg_paths.append(file_path)
                 continue
 
             if not lower.endswith(".webp"):
@@ -184,15 +197,57 @@ def scan_media_candidates(root_folder_path):
             static_webp_paths.append(file_path)
 
     RUN_METRICS["scan_sec"] = time.time() - started_at
+    RUN_METRICS["png_candidates"] = len(png_paths)
+    RUN_METRICS["jpg_candidates"] = len(jpg_paths)
     RUN_METRICS["static_webp_candidates"] = len(static_webp_paths)
     RUN_METRICS["gif_candidates"] = len(gif_paths)
     RUN_METRICS["animated_webp_candidates"] = len(animated_webp_paths)
-    return static_webp_paths, gif_paths, animated_webp_paths
+    return png_paths, jpg_paths, static_webp_paths, gif_paths, animated_webp_paths
 
 
-def process_images(static_webp_paths):
-    """Image/JPG-style block: process queued static WEBP files larger than JPG target size."""
+def process_images(png_paths, jpg_paths, static_webp_paths):
+    """Image block: convert PNG to JPG, compress oversized JPG/JPEG, and compress static WEBP."""
     worked = False
+
+    for png_path in png_paths:
+        worked = True
+        jpg_path = os.path.join(os.path.dirname(png_path), os.path.splitext(os.path.basename(png_path))[0] + ".jpg")
+
+        try:
+            with Image.open(png_path) as img:
+                png_size = os.path.getsize(png_path)
+                print(f"{VERSION} | Initial PNG: {png_path}")
+                print(f"{VERSION} | WxH={img.width}x{img.height} | Size={png_size/1024:.2f} KB")
+
+                img = img.convert("RGB")
+                img.save(jpg_path, "JPEG", quality=100, optimize=True, progressive=True)
+
+            jpg_size = os.path.getsize(jpg_path)
+            print(f"{VERSION} | Converted PNG -> JPG: {jpg_path}")
+            print(f"{VERSION} | Converted size={jpg_size/1024:.2f} KB | Target={TARGET_SIZE/1024:.0f} KB")
+
+            os.remove(png_path)
+
+            if jpg_size <= TARGET_SIZE:
+                print(
+                    f"{VERSION} | ✅ PNG success: {png_size/1024:.2f} KB -> {jpg_size/1024:.2f} KB "
+                    "(no further compression needed)"
+                )
+                continue
+
+            compress_until_under_target(jpg_path)
+        except UnidentifiedImageError:
+            print(f"{VERSION} | Skipped corrupted PNG: {png_path}")
+        except Exception as e:
+            print(f"{VERSION} | Error processing PNG {png_path}: {e}")
+
+    for jpg_path in jpg_paths:
+        worked = True
+        try:
+            compress_until_under_target(jpg_path)
+        except Exception as e:
+            print(f"{VERSION} | Error processing JPG {jpg_path}: {e}")
+
     for webp_path in static_webp_paths:
         worked = True
         try:
@@ -1716,26 +1771,28 @@ def process_gifs(gif_paths, animated_webp_paths):
 
 
 if __name__ == "__main__":
-    static_webp_paths, gif_paths, animated_webp_paths = scan_media_candidates(ROOT_FOLDER_PATH)
+    png_paths, jpg_paths, static_webp_paths, gif_paths, animated_webp_paths = scan_media_candidates(ROOT_FOLDER_PATH)
 
     images_started_at = time.time()
-    images_worked = process_images(static_webp_paths)
+    images_worked = process_images(png_paths, jpg_paths, static_webp_paths)
     images_elapsed = time.time() - images_started_at
 
     gifs_started_at = time.time()
     gifs_worked = process_gifs(gif_paths, animated_webp_paths)
     gifs_elapsed = time.time() - gifs_started_at
 
-    print("✅ Scan complete: static WEBP, GIF, and animated WEBP queues processed.")
+    print("✅ Scan complete: PNG, JPG/JPEG, static WEBP, GIF, and animated WEBP queues processed.")
     print(
         f"{VERSION} | scan_media={RUN_METRICS['scan_sec']:.2f} sec "
-        f"(static_webp={RUN_METRICS['static_webp_candidates']}, "
+        f"(png={RUN_METRICS['png_candidates']}, "
+        f"jpg={RUN_METRICS['jpg_candidates']}, "
+        f"static_webp={RUN_METRICS['static_webp_candidates']}, "
         f"gif={RUN_METRICS['gif_candidates']}, "
         f"animated_webp={RUN_METRICS['animated_webp_candidates']})"
     )
     print(
         f"{VERSION} | process_images={images_elapsed:.2f} sec "
-        f"(worked={'yes' if images_worked else 'no'}, files={len(static_webp_paths)})"
+        f"(worked={'yes' if images_worked else 'no'}, files={len(png_paths) + len(jpg_paths) + len(static_webp_paths)})"
     )
     print(
         f"{VERSION} | process_gifs={gifs_elapsed:.2f} sec "
