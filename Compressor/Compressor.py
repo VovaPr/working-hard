@@ -64,7 +64,7 @@ class GIFConfig:
 
 @dataclass(frozen=True)
 class AppConfig:
-    version: str = "Compressor v8.55.40"
+    version: str = "Compressor v8.55.41"
     root_folder_path: str = r"C:\other\lab\pic"
     stats_file: str = field(default_factory=lambda: os.path.join(os.path.dirname(__file__), "CompressorStats.JSON"))
     stats_soft_limit_mb: float = 50.0
@@ -1729,14 +1729,15 @@ if __name__ == "__main__":
     print("✅ All PNGs converted/compressed, oversized Webps, JPGs shrunk, and oversized GIFs, Webps compressed.")
     print(
         f"{VERSION} | process_images={images_elapsed:.2f} sec "
-        f"(worked={'yes' if images_worked else 'no'}) | "
-        f"process_gifs={gifs_elapsed:.2f} sec (worked={'yes' if gifs_worked else 'no'})"
+        f"(search={RUN_METRICS['jpg_style_search_sec']:.2f} sec, "
+        f"compress={RUN_METRICS['jpg_style_compress_sec']:.2f} sec, "
+        f"worked={'yes' if images_worked else 'no'})"
     )
     print(
-        f"{VERSION} | jpg_style_search={RUN_METRICS['jpg_style_search_sec']:.2f} sec | "
-        f"jpg_style_compress={RUN_METRICS['jpg_style_compress_sec']:.2f} sec | "
-        f"gif_search={RUN_METRICS['gif_search_sec']:.2f} sec | "
-        f"gif_compress={RUN_METRICS['gif_compress_sec']:.2f} sec"
+        f"{VERSION} | process_gifs={gifs_elapsed:.2f} sec "
+        f"(search={RUN_METRICS['gif_search_sec']:.2f} sec, "
+        f"compress={RUN_METRICS['gif_compress_sec']:.2f} sec, "
+        f"worked={'yes' if gifs_worked else 'no'})"
     )
 
     # Note for maintenance: if stats file grows beyond soft limit, consider cleanup/aggregation.
