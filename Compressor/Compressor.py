@@ -64,7 +64,7 @@ class GIFConfig:
 
 @dataclass(frozen=True)
 class AppConfig:
-    version: str = "Compressor v8.55.44"
+    version: str = "Compressor v8.55.45"
     root_folder_path: str = r"C:\other\lab\pic"
     stats_file: str = field(default_factory=lambda: os.path.join(os.path.dirname(__file__), "CompressorStats.JSON"))
     stats_soft_limit_mb: float = 50.0
@@ -1781,7 +1781,6 @@ if __name__ == "__main__":
     gifs_worked = process_gifs(gif_paths, animated_webp_paths)
     gifs_elapsed = time.time() - gifs_started_at
 
-    print("✅ Scan complete: PNG, JPG/JPEG, static WEBP, GIF, and animated WEBP queues processed.")
     print(
         f"{VERSION} | scan_media={RUN_METRICS['scan_sec']:.2f} sec "
         f"(png={RUN_METRICS['png_candidates']}, "
