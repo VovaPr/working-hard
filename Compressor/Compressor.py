@@ -64,7 +64,7 @@ class GIFConfig:
 
 @dataclass(frozen=True)
 class AppConfig:
-    version: str = "Compressor v8.55.36"
+    version: str = "Compressor v8.55.37"
     root_folder_path: str = r"C:\other\lab\pic"
     stats_file: str = field(default_factory=lambda: os.path.join(os.path.dirname(__file__), "CompressorStats.JSON"))
     stats_soft_limit_mb: float = 50.0
@@ -1657,10 +1657,20 @@ def process_gifs(root_folder):
 
 
 if __name__ == "__main__":
-    process_images(ROOT_FOLDER_PATH)
-    process_gifs(ROOT_FOLDER_PATH)
+    images_started_at = time.time()
+    images_worked = process_images(ROOT_FOLDER_PATH)
+    images_elapsed = time.time() - images_started_at
+
+    gifs_started_at = time.time()
+    gifs_worked = process_gifs(ROOT_FOLDER_PATH)
+    gifs_elapsed = time.time() - gifs_started_at
 
     print("✅ All PNGs converted/compressed, oversized Webps, JPGs shrunk, and oversized GIFs, Webps compressed.")
+    print(
+        f"{VERSION} | Phase timings | process_images={images_elapsed:.2f} sec "
+        f"(worked={'yes' if images_worked else 'no'}) | "
+        f"process_gifs={gifs_elapsed:.2f} sec (worked={'yes' if gifs_worked else 'no'})"
+    )
 
     # Note for maintenance: if stats file grows beyond soft limit, consider cleanup/aggregation.
     try:
@@ -1674,10 +1684,13 @@ if __name__ == "__main__":
         pass
 
     stats_script = os.path.join(os.path.dirname(__file__), "StatsCompressor.py")
+    stats_started_at = time.time()
     try:
         subprocess.run(["python", stats_script, STATS_FILE], check=True)
     except Exception as e:
         print(f"StatsCompressor failed: {e}")
+    stats_elapsed = time.time() - stats_started_at
+    print(f"{VERSION} | Phase timings | stats_compressor={stats_elapsed:.2f} sec")
 
     end_time = time.time()
     elapsed = end_time - start_time
