@@ -64,7 +64,7 @@ class GIFConfig:
 
 @dataclass(frozen=True)
 class AppConfig:
-    version: str = "Compressor v8.55.39"
+    version: str = "Compressor v8.55.40"
     root_folder_path: str = r"C:\other\lab\pic"
     stats_file: str = field(default_factory=lambda: os.path.join(os.path.dirname(__file__), "CompressorStats.JSON"))
     stats_soft_limit_mb: float = 50.0
@@ -1728,12 +1728,12 @@ if __name__ == "__main__":
 
     print("✅ All PNGs converted/compressed, oversized Webps, JPGs shrunk, and oversized GIFs, Webps compressed.")
     print(
-        f"{VERSION} | Phase timings | process_images={images_elapsed:.2f} sec "
+        f"{VERSION} | process_images={images_elapsed:.2f} sec "
         f"(worked={'yes' if images_worked else 'no'}) | "
         f"process_gifs={gifs_elapsed:.2f} sec (worked={'yes' if gifs_worked else 'no'})"
     )
     print(
-        f"{VERSION} | Phase timings | jpg_style_search={RUN_METRICS['jpg_style_search_sec']:.2f} sec | "
+        f"{VERSION} | jpg_style_search={RUN_METRICS['jpg_style_search_sec']:.2f} sec | "
         f"jpg_style_compress={RUN_METRICS['jpg_style_compress_sec']:.2f} sec | "
         f"gif_search={RUN_METRICS['gif_search_sec']:.2f} sec | "
         f"gif_compress={RUN_METRICS['gif_compress_sec']:.2f} sec"
@@ -1757,7 +1757,7 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"StatsCompressor failed: {e}")
     stats_elapsed = time.time() - stats_started_at
-    print(f"{VERSION} | Phase timings | stats_compressor={stats_elapsed:.2f} sec")
+    print(f"{VERSION} | stats_compressor={stats_elapsed:.2f} sec")
 
     end_time = time.time()
     elapsed = end_time - start_time
