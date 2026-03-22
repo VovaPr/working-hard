@@ -1,55 +1,23 @@
 import json, os, time
 
 class StatsCompressor:
-    VERSION = "StatsCompressor v2.2"
+    VERSION = "StatsCompressor v2.1"
 
     def __init__(self, path):
         self.path = path
         self.data = self._load()
 
     def _load(self):
-        """Load statistics in either legacy list format or new dict schema."""
+        """Load statistics from JSON file if it exists."""
         if os.path.exists(self.path):
-            with open(self.path, "r", encoding="utf-8-sig") as f:
-                raw = json.load(f)
-                if isinstance(raw, dict):
-                    data = dict(raw)
-                    data["gif_stats"] = raw.get("gif_stats", [])
-                    data["webp_animated_stats"] = raw.get("webp_animated_stats", [])
-                    data["scan_cache"] = raw.get("scan_cache", {})
-                    return data
-                return {
-                    "gif_stats": raw,
-                    "webp_animated_stats": [],
-                    "scan_cache": {},
-                }
-        return {"gif_stats": [], "webp_animated_stats": [], "scan_cache": {}}
+            with open(self.path, "r") as f:
+                return json.load(f)
+        return []
 
     def save(self):
-        """Save current statistics back to JSON file using dict schema."""
-        with open(self.path, "w", encoding="utf-8") as f:
+        """Save current statistics back to JSON file."""
+        with open(self.path, "w") as f:
             json.dump(self.data, f, indent=2)
-
-    def _cleanup_scan_cache(self):
-        """Remove scan cache entries for files that no longer exist on disk."""
-        scan_cache = self.data.get("scan_cache", {})
-        if not isinstance(scan_cache, dict):
-            self.data["scan_cache"] = {}
-            return 0, 0
-
-        before_count = len(scan_cache)
-        cleaned_cache = {
-            path: signature
-            for path, signature in scan_cache.items()
-            if os.path.exists(path)
-        }
-        self.data["scan_cache"] = cleaned_cache
-        return before_count, len(cleaned_cache)
-
-    def _scan_cache_size_kb(self):
-        scan_cache = self.data.get("scan_cache", {})
-        payload = json.dumps(scan_cache, ensure_ascii=False)
-        return len(payload.encode("utf-8")) / 1024.0
 
     def compress(self, max_records_per_group=20):
         """
@@ -59,10 +27,8 @@ class StatsCompressor:
         - Add 'count' field with number of merged entries.
         - Preserve 'scale' from the best entry.
         """
-        gif_stats = self.data.get("gif_stats", [])
-
         grouped = {}
-        for e in gif_stats:
+        for e in self.data:
             key = (e["palette"], e["width"], e["height"], e["frames"])
             grouped.setdefault(key, []).append(e)
 
@@ -81,41 +47,9 @@ class StatsCompressor:
             else:
                 new_data.extend(entries)
 
-        self.data["gif_stats"] = new_data
-
-        # Compress animated WEBP stats by file profile.
-        # Keep the most recent successful entry for each profile and annotate merged count.
-        webp_stats = self.data.get("webp_animated_stats", [])
-        grouped_webp = {}
-        for e in webp_stats:
-            key = (
-                e.get("width"),
-                e.get("height"),
-                e.get("frames"),
-                round(float(e.get("init_size_mb", 0.0)), 2),
-            )
-            grouped_webp.setdefault(key, []).append(e)
-
-        new_webp = []
-        for _, entries in grouped_webp.items():
-            best = max(entries, key=lambda x: x.get("timestamp", 0))
-            best = best.copy()
-            if len(entries) > 1:
-                best["count"] = len(entries)
-            new_webp.append(best)
-
-        self.data["webp_animated_stats"] = new_webp
-        scan_cache_before, scan_cache_after = self._cleanup_scan_cache()
-        scan_cache_pruned = max(0, scan_cache_before - scan_cache_after)
-        scan_cache_size_kb = self._scan_cache_size_kb()
+        self.data = new_data
         self.save()
-        return {
-            "gif_count": len(self.data["gif_stats"]),
-            "webp_count": len(self.data["webp_animated_stats"]),
-            "scan_cache_count": scan_cache_after,
-            "scan_cache_pruned": scan_cache_pruned,
-            "scan_cache_size_kb": scan_cache_size_kb,
-        }
+        return len(self.data)
 
 
 if __name__ == "__main__":
@@ -133,13 +67,6 @@ if __name__ == "__main__":
     compressor = StatsCompressor(stats_file)
 
     start_time = time.time()
-    counts = compressor.compress()
+    final_count = compressor.compress()
     elapsed = time.time() - start_time
-
-    print(
-        f"{StatsCompressor.VERSION} | GIF stats count={counts['gif_count']} | "
-        f"Animated WEBP stats count={counts['webp_count']} | "
-        f"Scan cache count={counts['scan_cache_count']} | "
-        f"pruned={counts['scan_cache_pruned']} | "
-        f"size={counts['scan_cache_size_kb']:.2f} KB | finished in {elapsed:.2f} sec"
-    )
+    # Не выводим ничего, только возвращаем значения для использования в Compressor.py

@@ -64,7 +64,7 @@ class GIFConfig:
 
 @dataclass(frozen=True)
 class AppConfig:
-    version: str = "Compressor v8.55.47"
+    version: str = "Compressor v8.56.0"
     root_folder_path: str = r"C:\other\lab\pic"
     stats_file: str = field(default_factory=lambda: os.path.join(os.path.dirname(__file__), "CompressorStats.JSON"))
     stats_soft_limit_mb: float = 50.0
@@ -104,12 +104,7 @@ def _parse_log_level(argv):
     return level if level in {"INFO", "DEBUG"} else "INFO"
 
 
-def _parse_changed_only(argv):
-    return any(arg.lower() in {"changed-only", "--changed-only"} for arg in argv[1:])
-
-
 LOG_LEVEL = _parse_log_level(sys.argv)
-CHANGED_ONLY = _parse_changed_only(sys.argv)
 
 
 def debug_log(message):
@@ -158,54 +153,7 @@ def _is_animated_webp_fast(path):
     return False
 
 
-def _load_scan_cache(stats_file):
-    try:
-        with open(stats_file, "r", encoding="utf-8-sig") as f:
-            data = json.load(f)
-            if isinstance(data, dict):
-                files = data.get("scan_cache", {})
-                return files if isinstance(files, dict) else {}
-    except Exception:
-        pass
-    return {}
-
-
-def _save_scan_cache(stats_file, file_cache):
-    try:
-        data = {}
-        if os.path.exists(stats_file):
-            with open(stats_file, "r", encoding="utf-8-sig") as f:
-                raw = json.load(f)
-                if isinstance(raw, dict):
-                    data = raw
-                elif isinstance(raw, list):
-                    data = {"gif_stats": raw}
-
-        data["scan_cache"] = file_cache
-        if "gif_stats" not in data:
-            data["gif_stats"] = []
-        if "webp_animated_stats" not in data:
-            data["webp_animated_stats"] = []
-
-        with open(stats_file, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=2)
-    except Exception as e:
-        print(f"{VERSION} | Warning: failed to save scan cache: {e}")
-
-
-def _build_file_signature(file_path):
-    stat = os.stat(file_path)
-    return {
-        "size": stat.st_size,
-        "mtime_ns": stat.st_mtime_ns,
-    }
-
-
-def _is_supported_media_file(lower_name):
-    return lower_name.endswith((".png", ".jpg", ".jpeg", ".gif", ".webp"))
-
-
-def scan_media_candidates(root_folder_path, changed_only=False):
+def scan_media_candidates(root_folder_path):
     """Single filesystem pass that classifies files for later processing."""
     png_paths = []
     jpg_paths = []
@@ -213,27 +161,14 @@ def scan_media_candidates(root_folder_path, changed_only=False):
     gif_paths = []
     animated_webp_paths = []
     started_at = time.time()
-    old_cache = _load_scan_cache(STATS_FILE) if changed_only else {}
-    new_cache = {}
 
     for folder_path, _, filenames in os.walk(root_folder_path):
         for filename in filenames:
             lower = filename.lower()
-            if not _is_supported_media_file(lower):
-                continue
-
             file_path = os.path.join(folder_path, filename)
-            try:
-                signature = _build_file_signature(file_path)
-            except OSError:
-                continue
-
-            new_cache[file_path] = signature
-            if changed_only and old_cache.get(file_path) == signature:
-                continue
 
             if lower.endswith(".gif"):
-                size_mb = signature["size"] / (1024 * 1024)
+                size_mb = os.path.getsize(file_path) / (1024 * 1024)
                 if size_mb > CONFIG.gif.min_process_size_mb:
                     gif_paths.append(file_path)
                 continue
@@ -243,11 +178,14 @@ def scan_media_candidates(root_folder_path, changed_only=False):
                 continue
 
             if lower.endswith((".jpg", ".jpeg")):
-                if signature["size"] > TARGET_SIZE:
+                if os.path.getsize(file_path) > TARGET_SIZE:
                     jpg_paths.append(file_path)
                 continue
 
-            size_bytes = signature["size"]
+            if not lower.endswith(".webp"):
+                continue
+
+            size_bytes = os.path.getsize(file_path)
             if size_bytes <= TARGET_SIZE:
                 continue
 
@@ -257,8 +195,6 @@ def scan_media_candidates(root_folder_path, changed_only=False):
                 continue
 
             static_webp_paths.append(file_path)
-
-    _save_scan_cache(STATS_FILE, new_cache)
 
     RUN_METRICS["scan_sec"] = time.time() - started_at
     RUN_METRICS["png_candidates"] = len(png_paths)
@@ -1835,10 +1771,7 @@ def process_gifs(gif_paths, animated_webp_paths):
 
 
 if __name__ == "__main__":
-    png_paths, jpg_paths, static_webp_paths, gif_paths, animated_webp_paths = scan_media_candidates(
-        ROOT_FOLDER_PATH,
-        changed_only=CHANGED_ONLY,
-    )
+    png_paths, jpg_paths, static_webp_paths, gif_paths, animated_webp_paths = scan_media_candidates(ROOT_FOLDER_PATH)
 
     images_started_at = time.time()
     images_worked = process_images(png_paths, jpg_paths, static_webp_paths)
@@ -1848,10 +1781,10 @@ if __name__ == "__main__":
     gifs_worked = process_gifs(gif_paths, animated_webp_paths)
     gifs_elapsed = time.time() - gifs_started_at
 
+    print(f"{VERSION} | ✅ Scan complete: PNG, JPG/JPEG, static WEBP, GIF, and animated WEBP queues processed.")
     print(
         f"{VERSION} | scan_media={RUN_METRICS['scan_sec']:.2f} sec "
-        f"(mode={'changed-only' if CHANGED_ONLY else 'full'}, "
-        f"png={RUN_METRICS['png_candidates']}, "
+        f"(png={RUN_METRICS['png_candidates']}, "
         f"jpg={RUN_METRICS['jpg_candidates']}, "
         f"static_webp={RUN_METRICS['static_webp_candidates']}, "
         f"gif={RUN_METRICS['gif_candidates']}, "
@@ -1885,6 +1818,10 @@ if __name__ == "__main__":
         print(f"StatsCompressor failed: {e}")
     stats_elapsed = time.time() - stats_started_at
     print(f"{VERSION} | stats_compressor={stats_elapsed:.2f} sec")
+
+    # Итоговые строки для пользователя
+    print(f"ℹ️ Scan time: {RUN_METRICS['scan_sec']:.2f} sec. Reason: Normal for this file count.")
+    print("✅ All PNGs converted/compressed, oversized Webps, JPGs shrunk, and oversized GIFs, Webps compressed.")
 
     end_time = time.time()
     elapsed = end_time - start_time
