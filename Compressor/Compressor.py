@@ -64,7 +64,7 @@ class GIFConfig:
 
 @dataclass(frozen=True)
 class AppConfig:
-    version: str = "Compressor v8.55.41"
+    version: str = "Compressor v8.55.42"
     root_folder_path: str = r"C:\other\lab\pic"
     stats_file: str = field(default_factory=lambda: os.path.join(os.path.dirname(__file__), "CompressorStats.JSON"))
     stats_soft_limit_mb: float = 50.0
@@ -82,10 +82,10 @@ TARGET_SIZE = CONFIG.jpg.target_size
 QUALITY_MAX = CONFIG.jpg.quality_max
 
 RUN_METRICS = {
-    "jpg_style_search_sec": 0.0,
-    "jpg_style_compress_sec": 0.0,
-    "gif_search_sec": 0.0,
-    "gif_compress_sec": 0.0,
+    "scan_sec": 0.0,
+    "static_webp_candidates": 0,
+    "gif_candidates": 0,
+    "animated_webp_candidates": 0,
 }
 
 
@@ -151,37 +151,54 @@ def _is_animated_webp_fast(path):
     return False
 
 
-def process_images(root_folder_path):
-    """Image/JPG-style block: process only static WEBP files larger than JPG target size."""
-    worked = False
-    loop_started_at = time.time()
-    compress_sec = 0.0
+def scan_media_candidates(root_folder_path):
+    """Single filesystem pass that classifies files for later processing."""
+    static_webp_paths = []
+    gif_paths = []
+    animated_webp_paths = []
+    started_at = time.time()
 
     for folder_path, _, filenames in os.walk(root_folder_path):
         for filename in filenames:
             lower = filename.lower()
+            file_path = os.path.join(folder_path, filename)
 
-            if lower.endswith(".webp"):
-                webp_path = os.path.join(folder_path, filename)
-                size_bytes = os.path.getsize(webp_path)
-                if size_bytes <= TARGET_SIZE:
-                    continue
+            if lower.endswith(".gif"):
+                size_mb = os.path.getsize(file_path) / (1024 * 1024)
+                if size_mb > CONFIG.gif.min_process_size_mb:
+                    gif_paths.append(file_path)
+                continue
 
-                if _is_animated_webp_fast(webp_path):
-                    continue
+            if not lower.endswith(".webp"):
+                continue
 
-                worked = True
-                try:
-                    compress_started_at = time.time()
-                    compress_static_webp_until_under_target(webp_path)
-                    compress_sec += time.time() - compress_started_at
-                except Exception as e:
-                    compress_sec += time.time() - compress_started_at
-                    print(f"{VERSION} | Error processing WEBP {webp_path}: {e}")
+            size_bytes = os.path.getsize(file_path)
+            if size_bytes <= TARGET_SIZE:
+                continue
 
-    total_sec = time.time() - loop_started_at
-    RUN_METRICS["jpg_style_compress_sec"] = compress_sec
-    RUN_METRICS["jpg_style_search_sec"] = max(0.0, total_sec - compress_sec)
+            if _is_animated_webp_fast(file_path):
+                if (size_bytes / (1024 * 1024)) > CONFIG.gif.min_process_size_mb:
+                    animated_webp_paths.append(file_path)
+                continue
+
+            static_webp_paths.append(file_path)
+
+    RUN_METRICS["scan_sec"] = time.time() - started_at
+    RUN_METRICS["static_webp_candidates"] = len(static_webp_paths)
+    RUN_METRICS["gif_candidates"] = len(gif_paths)
+    RUN_METRICS["animated_webp_candidates"] = len(animated_webp_paths)
+    return static_webp_paths, gif_paths, animated_webp_paths
+
+
+def process_images(static_webp_paths):
+    """Image/JPG-style block: process queued static WEBP files larger than JPG target size."""
+    worked = False
+    for webp_path in static_webp_paths:
+        worked = True
+        try:
+            compress_static_webp_until_under_target(webp_path)
+        except Exception as e:
+            print(f"{VERSION} | Error processing WEBP {webp_path}: {e}")
 
     return worked
 
@@ -1678,66 +1695,51 @@ def balanced_compress_gif(input_path, gif_cfg=CONFIG.gif):
     print(f"{VERSION} | Failed to converge after {gif_cfg.max_safe_iterations} iterations")
 
 
-def process_gifs(root_folder):
-    """GIF block: compress oversized GIFs and oversized animated WEBPs."""
+def process_gifs(gif_paths, animated_webp_paths):
+    """GIF block: process queued oversized GIFs and oversized animated WEBPs."""
     worked = False
-    loop_started_at = time.time()
-    compress_sec = 0.0
+    for file_path in gif_paths:
+        worked = True
+        try:
+            balanced_compress_gif(file_path)
+        except Exception as e:
+            print(f"{VERSION} | Error processing {file_path}: {e}")
 
-    for root, _, files in os.walk(root_folder):
-        for file in files:
-            lower = file.lower()
-            is_gif = lower.endswith(".gif")
-            is_webp = lower.endswith(".webp")
-            if not (is_gif or is_webp):
-                continue
-
-            file_path = os.path.join(root, file)
-            size_mb = os.path.getsize(file_path) / (1024 * 1024)
-            if size_mb <= CONFIG.gif.min_process_size_mb:
-                continue
-
-            worked = True
-
-            try:
-                compress_started_at = time.time()
-                if is_gif:
-                    balanced_compress_gif(file_path)
-                elif is_webp:
-                    compress_animated_webp_until_under_target(file_path)
-                compress_sec += time.time() - compress_started_at
-            except Exception as e:
-                compress_sec += time.time() - compress_started_at
-                print(f"{VERSION} | Error processing {file_path}: {e}")
-
-    total_sec = time.time() - loop_started_at
-    RUN_METRICS["gif_compress_sec"] = compress_sec
-    RUN_METRICS["gif_search_sec"] = max(0.0, total_sec - compress_sec)
+    for file_path in animated_webp_paths:
+        worked = True
+        try:
+            compress_animated_webp_until_under_target(file_path)
+        except Exception as e:
+            print(f"{VERSION} | Error processing {file_path}: {e}")
 
     return worked
 
 
 if __name__ == "__main__":
+    static_webp_paths, gif_paths, animated_webp_paths = scan_media_candidates(ROOT_FOLDER_PATH)
+
     images_started_at = time.time()
-    images_worked = process_images(ROOT_FOLDER_PATH)
+    images_worked = process_images(static_webp_paths)
     images_elapsed = time.time() - images_started_at
 
     gifs_started_at = time.time()
-    gifs_worked = process_gifs(ROOT_FOLDER_PATH)
+    gifs_worked = process_gifs(gif_paths, animated_webp_paths)
     gifs_elapsed = time.time() - gifs_started_at
 
     print("✅ All PNGs converted/compressed, oversized Webps, JPGs shrunk, and oversized GIFs, Webps compressed.")
     print(
+        f"{VERSION} | scan_media={RUN_METRICS['scan_sec']:.2f} sec "
+        f"(static_webp={RUN_METRICS['static_webp_candidates']}, "
+        f"gif={RUN_METRICS['gif_candidates']}, "
+        f"animated_webp={RUN_METRICS['animated_webp_candidates']})"
+    )
+    print(
         f"{VERSION} | process_images={images_elapsed:.2f} sec "
-        f"(search={RUN_METRICS['jpg_style_search_sec']:.2f} sec, "
-        f"compress={RUN_METRICS['jpg_style_compress_sec']:.2f} sec, "
-        f"worked={'yes' if images_worked else 'no'})"
+        f"(worked={'yes' if images_worked else 'no'}, files={len(static_webp_paths)})"
     )
     print(
         f"{VERSION} | process_gifs={gifs_elapsed:.2f} sec "
-        f"(search={RUN_METRICS['gif_search_sec']:.2f} sec, "
-        f"compress={RUN_METRICS['gif_compress_sec']:.2f} sec, "
-        f"worked={'yes' if gifs_worked else 'no'})"
+        f"(worked={'yes' if gifs_worked else 'no'}, files={len(gif_paths) + len(animated_webp_paths)})"
     )
 
     # Note for maintenance: if stats file grows beyond soft limit, consider cleanup/aggregation.
