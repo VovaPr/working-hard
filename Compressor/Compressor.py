@@ -64,7 +64,7 @@ class GIFConfig:
 
 @dataclass(frozen=True)
 class AppConfig:
-    version: str = "Compressor v8.55.37"
+    version: str = "Compressor v8.55.38"
     root_folder_path: str = r"C:\other\lab\pic"
     stats_file: str = field(default_factory=lambda: os.path.join(os.path.dirname(__file__), "CompressorStats.JSON"))
     stats_soft_limit_mb: float = 50.0
@@ -111,6 +111,39 @@ def _is_animated_webp(path):
         return False
 
 
+def _is_animated_webp_fast(path):
+    """Cheap WEBP container check to avoid opening animated WEBP via Pillow in the static pass."""
+    try:
+        with open(path, "rb") as f:
+            header = f.read(12)
+            if len(header) < 12 or header[:4] != b"RIFF" or header[8:12] != b"WEBP":
+                return False
+
+            for _ in range(8):
+                chunk_header = f.read(8)
+                if len(chunk_header) < 8:
+                    return False
+
+                chunk_type = chunk_header[:4]
+                chunk_size = int.from_bytes(chunk_header[4:8], "little")
+
+                if chunk_type == b"VP8X":
+                    flags = f.read(1)
+                    if len(flags) < 1:
+                        return False
+                    return bool(flags[0] & 0x02)
+
+                if chunk_type == b"ANIM":
+                    return True
+
+                skip = chunk_size + (chunk_size % 2)
+                f.seek(skip, os.SEEK_CUR)
+    except Exception:
+        return False
+
+    return False
+
+
 def process_images(root_folder_path):
     """Image/JPG-style block: process only static WEBP files larger than JPG target size."""
     worked = False
@@ -123,6 +156,9 @@ def process_images(root_folder_path):
                 webp_path = os.path.join(folder_path, filename)
                 size_bytes = os.path.getsize(webp_path)
                 if size_bytes <= TARGET_SIZE:
+                    continue
+
+                if _is_animated_webp_fast(webp_path):
                     continue
 
                 worked = True
