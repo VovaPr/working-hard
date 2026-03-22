@@ -64,10 +64,9 @@ class GIFConfig:
 
 @dataclass(frozen=True)
 class AppConfig:
-    version: str = "Compressor v8.55.46"
+    version: str = "Compressor v8.55.47"
     root_folder_path: str = r"C:\other\lab\pic"
     stats_file: str = field(default_factory=lambda: os.path.join(os.path.dirname(__file__), "CompressorStats.JSON"))
-    scan_cache_file: str = field(default_factory=lambda: os.path.join(os.path.dirname(__file__), "CompressorScanCache.json"))
     stats_soft_limit_mb: float = 50.0
     jpg: JPGConfig = field(default_factory=JPGConfig)
     gif: GIFConfig = field(default_factory=GIFConfig)
@@ -79,7 +78,6 @@ CONFIG = AppConfig()
 ROOT_FOLDER_PATH = CONFIG.root_folder_path
 VERSION = CONFIG.version
 STATS_FILE = CONFIG.stats_file
-SCAN_CACHE_FILE = CONFIG.scan_cache_file
 TARGET_SIZE = CONFIG.jpg.target_size
 QUALITY_MAX = CONFIG.jpg.quality_max
 
@@ -160,22 +158,37 @@ def _is_animated_webp_fast(path):
     return False
 
 
-def _load_scan_cache(cache_file):
+def _load_scan_cache(stats_file):
     try:
-        with open(cache_file, "r", encoding="utf-8") as f:
+        with open(stats_file, "r", encoding="utf-8-sig") as f:
             data = json.load(f)
             if isinstance(data, dict):
-                files = data.get("files", {})
+                files = data.get("scan_cache", {})
                 return files if isinstance(files, dict) else {}
     except Exception:
         pass
     return {}
 
 
-def _save_scan_cache(cache_file, file_cache):
+def _save_scan_cache(stats_file, file_cache):
     try:
-        with open(cache_file, "w", encoding="utf-8") as f:
-            json.dump({"files": file_cache}, f, indent=2)
+        data = {}
+        if os.path.exists(stats_file):
+            with open(stats_file, "r", encoding="utf-8-sig") as f:
+                raw = json.load(f)
+                if isinstance(raw, dict):
+                    data = raw
+                elif isinstance(raw, list):
+                    data = {"gif_stats": raw}
+
+        data["scan_cache"] = file_cache
+        if "gif_stats" not in data:
+            data["gif_stats"] = []
+        if "webp_animated_stats" not in data:
+            data["webp_animated_stats"] = []
+
+        with open(stats_file, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2)
     except Exception as e:
         print(f"{VERSION} | Warning: failed to save scan cache: {e}")
 
@@ -200,7 +213,7 @@ def scan_media_candidates(root_folder_path, changed_only=False):
     gif_paths = []
     animated_webp_paths = []
     started_at = time.time()
-    old_cache = _load_scan_cache(SCAN_CACHE_FILE) if changed_only else {}
+    old_cache = _load_scan_cache(STATS_FILE) if changed_only else {}
     new_cache = {}
 
     for folder_path, _, filenames in os.walk(root_folder_path):
@@ -245,7 +258,7 @@ def scan_media_candidates(root_folder_path, changed_only=False):
 
             static_webp_paths.append(file_path)
 
-            _save_scan_cache(SCAN_CACHE_FILE, new_cache)
+    _save_scan_cache(STATS_FILE, new_cache)
 
     RUN_METRICS["scan_sec"] = time.time() - started_at
     RUN_METRICS["png_candidates"] = len(png_paths)

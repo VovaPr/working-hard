@@ -8,14 +8,25 @@ class StatsCompressor:
         self.data = self._load()
 
     def _load(self):
-        """Load statistics from JSON file if it exists."""
+        """Load statistics in either legacy list format or new dict schema."""
         if os.path.exists(self.path):
-            with open(self.path, "r") as f:
-                return json.load(f)
-        return []
+            with open(self.path, "r", encoding="utf-8-sig") as f:
+                raw = json.load(f)
+                if isinstance(raw, dict):
+                    data = dict(raw)
+                    data["gif_stats"] = raw.get("gif_stats", [])
+                    data["webp_animated_stats"] = raw.get("webp_animated_stats", [])
+                    data["scan_cache"] = raw.get("scan_cache", {})
+                    return data
+                return {
+                    "gif_stats": raw,
+                    "webp_animated_stats": [],
+                    "scan_cache": {},
+                }
+        return {"gif_stats": [], "webp_animated_stats": [], "scan_cache": {}}
 
     def save(self):
-        """Save current statistics back to JSON file."""
+        """Save current statistics back to JSON file using dict schema."""
         with open(self.path, "w") as f:
             json.dump(self.data, f, indent=2)
 
@@ -27,8 +38,10 @@ class StatsCompressor:
         - Add 'count' field with number of merged entries.
         - Preserve 'scale' from the best entry.
         """
+        gif_stats = self.data.get("gif_stats", [])
+
         grouped = {}
-        for e in self.data:
+        for e in gif_stats:
             key = (e["palette"], e["width"], e["height"], e["frames"])
             grouped.setdefault(key, []).append(e)
 
@@ -47,9 +60,35 @@ class StatsCompressor:
             else:
                 new_data.extend(entries)
 
-        self.data = new_data
+        self.data["gif_stats"] = new_data
+
+        # Compress animated WEBP stats by file profile.
+        # Keep the most recent successful entry for each profile and annotate merged count.
+        webp_stats = self.data.get("webp_animated_stats", [])
+        grouped_webp = {}
+        for e in webp_stats:
+            key = (
+                e.get("width"),
+                e.get("height"),
+                e.get("frames"),
+                round(float(e.get("init_size_mb", 0.0)), 2),
+            )
+            grouped_webp.setdefault(key, []).append(e)
+
+        new_webp = []
+        for _, entries in grouped_webp.items():
+            best = max(entries, key=lambda x: x.get("timestamp", 0))
+            best = best.copy()
+            if len(entries) > 1:
+                best["count"] = len(entries)
+            new_webp.append(best)
+
+        self.data["webp_animated_stats"] = new_webp
         self.save()
-        return len(self.data)
+        return {
+            "gif_count": len(self.data["gif_stats"]),
+            "webp_count": len(self.data["webp_animated_stats"]),
+        }
 
 
 if __name__ == "__main__":
@@ -67,7 +106,10 @@ if __name__ == "__main__":
     compressor = StatsCompressor(stats_file)
 
     start_time = time.time()
-    final_count = compressor.compress()
+    counts = compressor.compress()
     elapsed = time.time() - start_time
 
-    print(f"{StatsCompressor.VERSION} | Final compressed stats count={final_count} | finished in {elapsed:.2f} sec")
+    print(
+        f"{StatsCompressor.VERSION} | GIF stats count={counts['gif_count']} | "
+        f"Animated WEBP stats count={counts['webp_count']} | finished in {elapsed:.2f} sec"
+    )
