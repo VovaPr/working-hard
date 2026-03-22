@@ -1,7 +1,7 @@
 import json, os, time
 
 class StatsCompressor:
-    VERSION = "StatsCompressor v2.1"
+    VERSION = "StatsCompressor v2.2"
 
     def __init__(self, path):
         self.path = path
@@ -27,8 +27,29 @@ class StatsCompressor:
 
     def save(self):
         """Save current statistics back to JSON file using dict schema."""
-        with open(self.path, "w") as f:
+        with open(self.path, "w", encoding="utf-8") as f:
             json.dump(self.data, f, indent=2)
+
+    def _cleanup_scan_cache(self):
+        """Remove scan cache entries for files that no longer exist on disk."""
+        scan_cache = self.data.get("scan_cache", {})
+        if not isinstance(scan_cache, dict):
+            self.data["scan_cache"] = {}
+            return 0, 0
+
+        before_count = len(scan_cache)
+        cleaned_cache = {
+            path: signature
+            for path, signature in scan_cache.items()
+            if os.path.exists(path)
+        }
+        self.data["scan_cache"] = cleaned_cache
+        return before_count, len(cleaned_cache)
+
+    def _scan_cache_size_kb(self):
+        scan_cache = self.data.get("scan_cache", {})
+        payload = json.dumps(scan_cache, ensure_ascii=False)
+        return len(payload.encode("utf-8")) / 1024.0
 
     def compress(self, max_records_per_group=20):
         """
@@ -84,10 +105,16 @@ class StatsCompressor:
             new_webp.append(best)
 
         self.data["webp_animated_stats"] = new_webp
+        scan_cache_before, scan_cache_after = self._cleanup_scan_cache()
+        scan_cache_pruned = max(0, scan_cache_before - scan_cache_after)
+        scan_cache_size_kb = self._scan_cache_size_kb()
         self.save()
         return {
             "gif_count": len(self.data["gif_stats"]),
             "webp_count": len(self.data["webp_animated_stats"]),
+            "scan_cache_count": scan_cache_after,
+            "scan_cache_pruned": scan_cache_pruned,
+            "scan_cache_size_kb": scan_cache_size_kb,
         }
 
 
@@ -111,5 +138,8 @@ if __name__ == "__main__":
 
     print(
         f"{StatsCompressor.VERSION} | GIF stats count={counts['gif_count']} | "
-        f"Animated WEBP stats count={counts['webp_count']} | finished in {elapsed:.2f} sec"
+        f"Animated WEBP stats count={counts['webp_count']} | "
+        f"Scan cache count={counts['scan_cache_count']} | "
+        f"pruned={counts['scan_cache_pruned']} | "
+        f"size={counts['scan_cache_size_kb']:.2f} KB | finished in {elapsed:.2f} sec"
     )
