@@ -50,6 +50,8 @@ class GIFConfig:
     webp_animated_method_default: int = 2
     webp_animated_method_fast: int = 0
     webp_animated_probe_enabled: bool = True
+    webp_animated_direct_final_enabled: bool = True
+    webp_animated_direct_final_init_tolerance_mb: float = 0.35
     webp_animated_probe_verify_margin_ratio: float = 0.06
     webp_animated_probe_recalibrate_every: int = 3
     webp_animated_slow_step_sec: float = 20.0
@@ -62,7 +64,7 @@ class GIFConfig:
 
 @dataclass(frozen=True)
 class AppConfig:
-    version: str = "Compressor v8.55.35"
+    version: str = "Compressor v8.55.36"
     root_folder_path: str = r"C:\other\lab\pic"
     stats_file: str = field(default_factory=lambda: os.path.join(os.path.dirname(__file__), "CompressorStats.JSON"))
     stats_soft_limit_mb: float = 50.0
@@ -274,10 +276,9 @@ def _compress_animated_webp(
     frame_count=None,
 ):
     """Animated WEBP compression with bracketed quality search and guarded runtime."""
-    # Predict startup quality from historical stats if available
+    startup_plan = None
     if stats_mgr_webp and width and height and frame_count:
-        stats_count = stats_mgr_webp.stats_count()
-        predicted_q = stats_mgr_webp.predict_startup_quality(
+        startup_plan = stats_mgr_webp.select_startup_plan(
             width,
             height,
             frame_count,
@@ -286,15 +287,19 @@ def _compress_animated_webp(
             gif_cfg.target_max_mb,
             gif_cfg,
         )
-        if predicted_q is not None:
-            quality = predicted_q
-            source = f"webp stats (records={stats_count})"
-        else:
-            quality = 95
-            source = f"default (no webp match, records={stats_count})"
+
+    if startup_plan is not None:
+        quality = startup_plan["quality"]
+        source = startup_plan["source"]
+        direct_final_from_stats = startup_plan["direct_final"]
+    elif stats_mgr_webp and width and height and frame_count:
+        quality = 95
+        source = f"default (no webp match, records={stats_mgr_webp.stats_count()})"
+        direct_final_from_stats = False
     else:
         quality = 95
         source = "default (stats unavailable)"
+        direct_final_from_stats = False
 
     print(f"{local_version} | Prediction source: {source} -> initial quality={quality}")
 
@@ -307,6 +312,11 @@ def _compress_animated_webp(
     method_ratio = 1.0
     method_ratio_samples = 0
 
+    if direct_final_from_stats:
+        print(
+            f"{local_version} | WEBP animated direct-final enabled | "
+            f"known profile -> method={webp_method}"
+        )
     if probe_enabled:
         print(
             f"{local_version} | WEBP animated probe enabled | "
@@ -319,7 +329,8 @@ def _compress_animated_webp(
     for step in range(1, gif_cfg.webp_animated_max_iterations + 1):
         quality = max(1, min(100, int(quality)))
         bracket_known = under_target_q is not None and over_target_q is not None
-        method_in_use = webp_method_fast if probe_enabled else webp_method
+        direct_final_this_step = bool(direct_final_from_stats and step == 1)
+        method_in_use = webp_method if direct_final_this_step else webp_method_fast if probe_enabled else webp_method
         print(
             f"{local_version} | WEBP animated step {step} | "
             f"Encoding... (q={quality}, method={method_in_use})"
@@ -688,44 +699,86 @@ class AnimatedWebPStatsManager:
         except Exception as e:
             print(f"{VERSION} | Warning: failed to save webp_animated_stats: {e}")
 
+    def select_startup_plan(self, width, height, frames, init_size_mb, target_min_mb, target_max_mb, gif_cfg):
+        """Return startup strategy for animated WEBP, including whether direct-final is safe."""
+        max_diff_ratio = 0.20
+        target_mid_mb = (target_min_mb + target_max_mb) / 2.0
+        exact_init_tolerance = max(0.05, float(gif_cfg.webp_animated_direct_final_init_tolerance_mb))
+        candidates = []
+
+        for entry in self.webp_stats:
+            width_diff = abs(entry["width"] - width) / max(width, 1)
+            height_diff = abs(entry["height"] - height) / max(height, 1)
+            frame_diff = abs(entry["frames"] - frames) / max(frames, 1)
+
+            if width_diff > max_diff_ratio or height_diff > max_diff_ratio or frame_diff > max_diff_ratio:
+                continue
+
+            result_size = entry["result_size_mb"]
+            if not (target_min_mb - 0.3 <= result_size <= target_max_mb + 0.3):
+                continue
+
+            init_diff = abs(entry["init_size_mb"] - init_size_mb)
+            mid_diff = abs(result_size - target_mid_mb)
+            exact_profile = (
+                entry["width"] == width
+                and entry["height"] == height
+                and entry["frames"] == frames
+            )
+            direct_final = bool(
+                gif_cfg.webp_animated_direct_final_enabled
+                and exact_profile
+                and init_diff <= exact_init_tolerance
+            )
+            candidates.append(
+                {
+                    "quality": entry["quality"],
+                    "method": entry.get("method", gif_cfg.webp_animated_method_default),
+                    "init_diff": init_diff,
+                    "mid_diff": mid_diff,
+                    "timestamp": entry.get("timestamp", 0),
+                    "direct_final": direct_final,
+                    "exact_profile": exact_profile,
+                }
+            )
+
+        if not candidates:
+            return None
+
+        candidates.sort(
+            key=lambda item: (
+                0 if item["direct_final"] else 1,
+                0 if item["exact_profile"] else 1,
+                item["init_diff"],
+                item["mid_diff"],
+                -item["timestamp"],
+            )
+        )
+        best = candidates[0]
+        source_prefix = "webp exact stats" if best["exact_profile"] else "webp stats"
+        source_suffix = "direct-final" if best["direct_final"] else "probe-guided"
+        return {
+            "quality": best["quality"],
+            "method": best["method"],
+            "direct_final": best["direct_final"],
+            "source": f"{source_prefix} ({source_suffix}, records={self.stats_count()})",
+        }
+
     def predict_startup_quality(self, width, height, frames, init_size_mb, target_min_mb, target_max_mb, gif_cfg):
         """
         Find similar files and their successful quality values.
         Return quality q that landed in target range, or None to use default (95).
         """
-        max_diff_ratio = 0.20
-        target_mid_mb = (target_min_mb + target_max_mb) / 2.0
-        candidates = []
-
-        for entry in self.webp_stats:
-            # Check if this entry is similar in dimensions and frame count
-            width_diff = abs(entry["width"] - width) / max(width, 1)
-            height_diff = abs(entry["height"] - height) / max(height, 1)
-            frame_diff = abs(entry["frames"] - frames) / max(frames, 1)
-
-            if width_diff <= max_diff_ratio and height_diff <= max_diff_ratio and frame_diff <= max_diff_ratio:
-                result_size = entry["result_size_mb"]
-                # Check if this result was successful (within or close to target)
-                if target_min_mb - 0.3 <= result_size <= target_max_mb + 0.3:
-                    init_diff = abs(entry["init_size_mb"] - init_size_mb)
-                    mid_diff = abs(entry["result_size_mb"] - target_mid_mb)
-                    candidates.append(
-                        (
-                            entry["quality"],
-                            init_diff,
-                            mid_diff,
-                            -entry.get("timestamp", 0),
-                            entry["result_size_mb"],
-                        )
-                    )
-
-        if not candidates:
-            return None
-
-        # Priority: closest init_size -> closest target midpoint -> most recent.
-        candidates.sort(key=lambda x: (x[1], x[2], x[3]))
-        best_q = candidates[0][0]
-        return best_q
+        plan = self.select_startup_plan(
+            width,
+            height,
+            frames,
+            init_size_mb,
+            target_min_mb,
+            target_max_mb,
+            gif_cfg,
+        )
+        return None if plan is None else plan["quality"]
 
 
 class CompressorStatsManager:
