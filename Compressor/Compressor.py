@@ -42,13 +42,30 @@ class GIFConfig:
     sample_probe_max_frames: int = 36
     fast_direct_accept_enabled: bool = True
     fast_direct_min_frames: int = 120
+    probe_skip_overflow_margin: float = 1.08
+    probe_skip_underflow_margin_mb: float = 0.10
+    webp_animated_max_iterations: int = 12
+    webp_static_max_iterations: int = 12
+    webp_static_method_default: int = 4
+    webp_animated_method_default: int = 2
+    webp_animated_method_fast: int = 0
+    webp_animated_probe_enabled: bool = True
+    webp_animated_probe_verify_margin_ratio: float = 0.06
+    webp_animated_probe_recalibrate_every: int = 3
+    webp_animated_slow_step_sec: float = 20.0
+    webp_file_max_seconds: float = 90.0
+    webp_animated_near_band_ratio: float = 0.10
+    webp_animated_nudge_small_ratio: float = 0.04
+    webp_animated_nudge_small_step: int = 1
+    webp_animated_nudge_large_step: int = 2
 
 
 @dataclass(frozen=True)
 class AppConfig:
-    version: str = "Compressor v8.55.17"
+    version: str = "Compressor v8.55.35"
     root_folder_path: str = r"C:\other\lab\pic"
     stats_file: str = field(default_factory=lambda: os.path.join(os.path.dirname(__file__), "CompressorStats.JSON"))
+    stats_soft_limit_mb: float = 50.0
     jpg: JPGConfig = field(default_factory=JPGConfig)
     gif: GIFConfig = field(default_factory=GIFConfig)
 
@@ -84,56 +101,33 @@ def debug_log(message):
         print(f"{VERSION} | Debug | {message}")
 
 
+def _is_animated_webp(path):
+    try:
+        with Image.open(path) as img:
+            return bool(getattr(img, "is_animated", False) and getattr(img, "n_frames", 1) > 1)
+    except Exception:
+        return False
+
+
 def process_images(root_folder_path):
-    """Convert PNG -> JPG, then compress oversized JPGs."""
+    """Image/JPG-style block: process only static WEBP files larger than JPG target size."""
     worked = False
 
     for folder_path, _, filenames in os.walk(root_folder_path):
         for filename in filenames:
             lower = filename.lower()
 
-            if lower.endswith(".png"):
-                if not worked:
-                    print(f"{VERSION} | Starting PNG->JPG conversion and compression")
-                    worked = True
+            if lower.endswith(".webp"):
+                webp_path = os.path.join(folder_path, filename)
+                size_bytes = os.path.getsize(webp_path)
+                if size_bytes <= TARGET_SIZE:
+                    continue
 
-                png_path = os.path.join(folder_path, filename)
-                jpg_path = os.path.join(folder_path, filename.rsplit(".", 1)[0] + ".jpg")
-
+                worked = True
                 try:
-                    with Image.open(png_path) as img:
-                        png_size = os.path.getsize(png_path)
-                        print(f"{VERSION} | Initial File: {png_path}")
-                        print(f"{VERSION} | WxH={img.width}x{img.height} | Size={png_size/1024:.2f} KB")
-
-                        img = img.convert("RGB")
-                        img.save(jpg_path, "JPEG", quality=100, optimize=True, progressive=True)
-
-                    jpg_size = os.path.getsize(jpg_path)
-                    print(f"{VERSION} | Final JPG Converted: {jpg_path}")
-                    print(f"{VERSION} | Size={jpg_size/1024:.2f} KB")
-
-                    os.remove(png_path)
-
-                    if jpg_size <= TARGET_SIZE:
-                        print(
-                            f"{VERSION} | ✅ Success: {png_size/1024:.2f} KB -> {jpg_size/1024:.2f} KB "
-                            "(no further compression needed)"
-                        )
-                        continue
-
-                    compress_until_under_target(jpg_path)
-
-                except UnidentifiedImageError:
-                    print(f"{VERSION} | Skipped corrupted PNG: {png_path}")
-
-            elif lower.endswith((".jpg", ".jpeg")):
-                jpg_path = os.path.join(folder_path, filename)
-                if os.path.getsize(jpg_path) > TARGET_SIZE:
-                    if not worked:
-                        print(f"{VERSION} | Starting PNG->JPG conversion and compression")
-                        worked = True
-                    compress_until_under_target(jpg_path)
+                    compress_static_webp_until_under_target(webp_path)
+                except Exception as e:
+                    print(f"{VERSION} | Error processing WEBP {webp_path}: {e}")
 
     return worked
 
@@ -193,6 +187,547 @@ def compress_until_under_target(path, target_size=TARGET_SIZE):
         print(f"{local_version} | Skipped corrupted file: {path}")
 
 
+def _save_webp_frames(frames, durations, quality, method=6):
+    buf = io.BytesIO()
+    frames[0].save(
+        buf,
+        format="WEBP",
+        save_all=True,
+        append_images=frames[1:],
+        duration=durations,
+        loop=0,
+        quality=quality,
+        method=method,
+    )
+    return buf
+
+
+def _compress_static_webp_like_jpg(
+    image,
+    target_size,
+    local_version,
+    gif_cfg,
+    started_at,
+):
+    """JPG-like loop for static WEBP: target by bytes, quality first, then resize."""
+    quality = 95
+    resize_count = 0
+    webp_method = max(0, min(6, gif_cfg.webp_static_method_default))
+
+    for step in range(1, gif_cfg.webp_static_max_iterations + 1):
+        quality = max(1, min(100, int(quality)))
+        buf = io.BytesIO()
+        image.save(buf, "WEBP", quality=quality, method=webp_method)
+        file_size = len(buf.getvalue())
+        elapsed = time.time() - started_at
+        print(
+            f"{local_version} | WEBP static step {step} | "
+            f"Size={file_size/1024:.2f} KB | q={quality} | method={webp_method} | elapsed={elapsed:.2f} sec"
+        )
+
+        if file_size <= target_size:
+            return buf, file_size, quality, resize_count, True
+
+        if elapsed >= gif_cfg.webp_file_max_seconds:
+            print(
+                f"{local_version} | ⚠ WEBP static timeout {elapsed:.2f} sec; "
+                f"file kept unchanged"
+            )
+            return None, None, quality, resize_count, False
+
+        correction = (target_size / file_size) ** 0.5 if file_size > 0 else 1.0
+        correction = max(0.75, min(1.25, correction))
+
+        if quality <= 50:
+            new_w = max(1, int(image.width * correction))
+            new_h = max(1, int(image.height * correction))
+            image = image.resize((new_w, new_h), Image.LANCZOS)
+            resize_count += 1
+            quality = 95
+            print(f"{local_version} | WEBP step {resize_count} | Resized to {new_w}x{new_h}, reset quality={quality}")
+            continue
+
+        quality = max(50, min(100, int(quality * correction)))
+        print(f"{local_version} | WEBP step {resize_count+1} | Quality={quality}")
+
+    print(
+        f"{local_version} | ⚠ WEBP static max iterations reached; "
+        f"file kept unchanged (could not hit target <= {target_size/1024:.0f} KB)"
+    )
+    return None, None, quality, resize_count, False
+
+
+def _compress_animated_webp(
+    frames,
+    durations,
+    path,
+    init_size,
+    target_min_bytes,
+    target_max_bytes,
+    target_mid_bytes,
+    local_version,
+    gif_cfg,
+    started_at,
+    stats_mgr_webp=None,
+    width=None,
+    height=None,
+    frame_count=None,
+):
+    """Animated WEBP compression with bracketed quality search and guarded runtime."""
+    # Predict startup quality from historical stats if available
+    if stats_mgr_webp and width and height and frame_count:
+        stats_count = stats_mgr_webp.stats_count()
+        predicted_q = stats_mgr_webp.predict_startup_quality(
+            width,
+            height,
+            frame_count,
+            init_size / (1024 * 1024),
+            gif_cfg.target_min_mb,
+            gif_cfg.target_max_mb,
+            gif_cfg,
+        )
+        if predicted_q is not None:
+            quality = predicted_q
+            source = f"webp stats (records={stats_count})"
+        else:
+            quality = 95
+            source = f"default (no webp match, records={stats_count})"
+    else:
+        quality = 95
+        source = "default (stats unavailable)"
+
+    print(f"{local_version} | Prediction source: {source} -> initial quality={quality}")
+
+    resize_count = 0
+    webp_method = max(0, min(6, gif_cfg.webp_animated_method_default))
+    webp_method_fast = max(0, min(6, gif_cfg.webp_animated_method_fast))
+    probe_enabled = bool(gif_cfg.webp_animated_probe_enabled and webp_method_fast != webp_method)
+    verify_margin_ratio = max(0.0, min(0.20, gif_cfg.webp_animated_probe_verify_margin_ratio))
+    recalibrate_every = max(1, int(gif_cfg.webp_animated_probe_recalibrate_every))
+    method_ratio = 1.0
+    method_ratio_samples = 0
+
+    if probe_enabled:
+        print(
+            f"{local_version} | WEBP animated probe enabled | "
+            f"probe_method={webp_method_fast} -> final_method={webp_method}"
+        )
+
+    under_target_q = None
+    over_target_q = None
+
+    for step in range(1, gif_cfg.webp_animated_max_iterations + 1):
+        quality = max(1, min(100, int(quality)))
+        bracket_known = under_target_q is not None and over_target_q is not None
+        method_in_use = webp_method_fast if probe_enabled else webp_method
+        print(
+            f"{local_version} | WEBP animated step {step} | "
+            f"Encoding... (q={quality}, method={method_in_use})"
+        )
+        encode_start = time.time()
+        try:
+            probe_buf = _save_webp_frames(frames, durations, quality, method=method_in_use)
+        except ValueError as e:
+            fallback_method = 0
+            fallback_quality = max(1, min(100, quality))
+            print(
+                f"{local_version} | WEBP animated config error: {e} "
+                f"| retry with q={fallback_quality}, method={fallback_method}"
+            )
+            try:
+                probe_buf = _save_webp_frames(frames, durations, fallback_quality, method=fallback_method)
+                quality = fallback_quality
+                method_in_use = fallback_method
+            except ValueError as e2:
+                print(f"{local_version} | ⚠ WEBP animated encode failed: {e2}; file kept unchanged")
+                return
+
+        probe_encode_elapsed = time.time() - encode_start
+        probe_size = len(probe_buf.getvalue())
+        effective_size = probe_size
+        effective_buf = probe_buf
+        effective_method = method_in_use
+        step_encode_elapsed = probe_encode_elapsed
+
+        should_verify_final = False
+        if probe_enabled and method_in_use != webp_method:
+            predicted_final = max(1, int(probe_size * method_ratio))
+            effective_size = predicted_final
+            lower_verify = int(target_min_bytes * (1.0 - verify_margin_ratio))
+            upper_verify = int(target_max_bytes * (1.0 + verify_margin_ratio))
+
+            should_verify_final = (
+                target_min_bytes <= predicted_final <= target_max_bytes
+                or lower_verify <= predicted_final <= upper_verify
+                or step % recalibrate_every == 0
+                or (bracket_known and (over_target_q - under_target_q) <= 2)
+                or step == gif_cfg.webp_animated_max_iterations
+            )
+
+            print(
+                f"{local_version} | WEBP animated probe | "
+                f"Size={probe_size/1024:.2f} KB -> est_final={predicted_final/1024:.2f} KB "
+                f"| ratio={method_ratio:.3f}"
+            )
+
+            if should_verify_final:
+                verify_start = time.time()
+                try:
+                    final_buf = _save_webp_frames(frames, durations, quality, method=webp_method)
+                    final_method = webp_method
+                except ValueError as e:
+                    fallback_method = 0
+                    print(
+                        f"{local_version} | WEBP animated final verify error: {e} "
+                        f"| retry with method={fallback_method}"
+                    )
+                    final_buf = _save_webp_frames(frames, durations, quality, method=fallback_method)
+                    final_method = fallback_method
+
+                verify_elapsed = time.time() - verify_start
+                final_size = len(final_buf.getvalue())
+                step_encode_elapsed += verify_elapsed
+
+                if probe_size > 0:
+                    measured_ratio = final_size / probe_size
+                    measured_ratio = max(0.5, min(1.8, measured_ratio))
+                    if method_ratio_samples == 0:
+                        method_ratio = measured_ratio
+                    else:
+                        method_ratio = method_ratio * 0.7 + measured_ratio * 0.3
+                    method_ratio_samples += 1
+
+                effective_size = final_size
+                effective_buf = final_buf
+                effective_method = final_method
+                print(
+                    f"{local_version} | WEBP animated verify | "
+                    f"final={final_size/1024:.2f} KB | method={final_method} "
+                    f"| verify={verify_elapsed:.2f} sec | ratio_now={method_ratio:.3f}"
+                )
+
+        print(
+            f"{local_version} | WEBP animated step {step} | "
+            f"Size={effective_size/1024:.2f} KB | encode={step_encode_elapsed:.2f} sec"
+        )
+
+        elapsed = time.time() - started_at
+        if elapsed >= gif_cfg.webp_file_max_seconds:
+            print(
+                f"{local_version} | ⚠ WEBP animated timeout {elapsed:.2f} sec; "
+                f"file kept unchanged"
+            )
+            return
+
+        if target_min_bytes <= effective_size <= target_max_bytes:
+            if stats_mgr_webp and width and height and frame_count:
+                stats_mgr_webp.save_step(
+                    width,
+                    height,
+                    frame_count,
+                    init_size / (1024 * 1024),
+                    quality,
+                    effective_method,
+                    effective_size / (1024 * 1024),
+                    step_encode_elapsed,
+                )
+            with open(path, "wb") as f:
+                f.write(effective_buf.getvalue())
+            elapsed = time.time() - started_at
+            print(
+                f"{local_version} | ✅ WEBP success: {init_size/1024:.2f} KB -> {effective_size/1024:.2f} KB "
+                f"| Quality={quality} | Resized {resize_count} times"
+            )
+            if stats_mgr_webp:
+                print(
+                    f"{local_version} | WEBP animated stats total: {stats_mgr_webp.stats_count()} records"
+                )
+            print(f"{local_version} | Finished in {elapsed:.2f} sec")
+            return
+
+        if effective_size < target_min_bytes:
+            under_target_q = quality if under_target_q is None else max(under_target_q, quality)
+        elif effective_size > target_max_bytes:
+            over_target_q = quality if over_target_q is None else min(over_target_q, quality)
+
+        # Near-target miss: nudge quality by 1-2 points to avoid overshooting and extra full re-encodes.
+        near_mid_ratio = abs(effective_size - target_mid_bytes) / target_mid_bytes if target_mid_bytes > 0 else 0.0
+        has_bracket = under_target_q is not None and over_target_q is not None
+        if not has_bracket and near_mid_ratio <= gif_cfg.webp_animated_near_band_ratio:
+            miss_ratio = (
+                (target_min_bytes - effective_size) / target_min_bytes
+                if effective_size < target_min_bytes and target_min_bytes > 0
+                else (effective_size - target_max_bytes) / target_max_bytes
+                if effective_size > target_max_bytes and target_max_bytes > 0
+                else 0.0
+            )
+            nudge_step = (
+                gif_cfg.webp_animated_nudge_small_step
+                if miss_ratio <= gif_cfg.webp_animated_nudge_small_ratio
+                else gif_cfg.webp_animated_nudge_large_step
+            )
+            if effective_size < target_min_bytes:
+                quality = min(100, quality + nudge_step)
+            else:
+                quality = max(45, quality - nudge_step)
+            print(
+                f"{local_version} | WEBP animated near-target nudge | "
+                f"miss={miss_ratio*100:.2f}% | step={nudge_step} -> next_q={quality}"
+            )
+            continue
+
+        correction = (target_mid_bytes / effective_size) ** 0.5
+        correction = max(0.88, min(1.12, correction))
+
+        if quality <= 45:
+            new_w = max(1, int(frames[0].width * correction))
+            new_h = max(1, int(frames[0].height * correction))
+            frames = [fr.resize((new_w, new_h), Image.LANCZOS) for fr in frames]
+            resize_count += 1
+            quality = 95
+            under_target_q = None
+            over_target_q = None
+            print(f"{local_version} | WEBP step {resize_count} | Resized to {new_w}x{new_h}, reset quality={quality}")
+            continue
+
+        if (
+            under_target_q is not None
+            and over_target_q is not None
+            and over_target_q - under_target_q > 1
+        ):
+            quality = (under_target_q + over_target_q) // 2
+            print(
+                f"{local_version} | WEBP animated bracket | under_q={under_target_q}, "
+                f"over_q={over_target_q} -> next_q={quality}"
+            )
+        else:
+            quality = max(45, min(100, int(quality * correction)))
+
+        print(f"{local_version} | WEBP step {resize_count+1} | Quality={quality}")
+
+    print(
+        f"{local_version} | ⚠ WEBP animated max iterations reached; "
+        f"file kept unchanged (could not hit {gif_cfg.target_min_mb:.2f}-{gif_cfg.target_max_mb:.2f} MB)"
+    )
+    return
+
+
+def compress_static_webp_until_under_target(path, gif_cfg=CONFIG.gif):
+    """Static WEBP path: image/JPG-style logic with WEBP output preserved."""
+    local_version = VERSION
+    started_at = time.time()
+
+    try:
+        with Image.open(path) as img:
+            init_size = os.path.getsize(path)
+            frame_count = getattr(img, "n_frames", 1)
+            is_animated = bool(getattr(img, "is_animated", False) and frame_count > 1)
+            if is_animated:
+                return
+
+            print(f"{local_version} | Initial WEBP: {path}")
+            print(
+                f"{local_version} | WxH={img.width}x{img.height} | Animated=False "
+                f"| Frames={frame_count} | Size={init_size/1024:.2f} KB "
+                f"| Target={TARGET_SIZE/1024:.0f} KB"
+            )
+
+            if init_size <= TARGET_SIZE:
+                print(f"{local_version} | ✅ WEBP already in target range, no compression needed")
+                return
+
+            has_alpha = "A" in (img.mode or "")
+            image = img.convert("RGBA" if has_alpha else "RGB")
+            buf, file_size, quality, resize_count, success = _compress_static_webp_like_jpg(
+                image,
+                TARGET_SIZE,
+                local_version,
+                gif_cfg,
+                started_at,
+            )
+            if not success:
+                return
+
+            with open(path, "wb") as f:
+                f.write(buf.getvalue())
+            elapsed = time.time() - started_at
+            print(
+                f"{local_version} | ✅ WEBP success (static-jpg-like): {init_size/1024:.2f} KB -> {file_size/1024:.2f} KB "
+                f"| Quality={quality} | Resized {resize_count} times"
+            )
+            print(f"{local_version} | Finished in {elapsed:.2f} sec")
+
+    except UnidentifiedImageError:
+        print(f"{local_version} | Skipped corrupted WEBP: {path}")
+
+
+def compress_animated_webp_until_under_target(path, gif_cfg=CONFIG.gif):
+    """Animated WEBP path: GIF-style block for heavy frame compression."""
+    local_version = VERSION
+    started_at = time.time()
+    target_min_bytes = int(gif_cfg.target_min_mb * 1024 * 1024)
+    target_max_bytes = int(gif_cfg.target_max_mb * 1024 * 1024)
+    target_mid_bytes = int(((gif_cfg.target_min_mb + gif_cfg.target_max_mb) / 2.0) * 1024 * 1024)
+
+    try:
+        with Image.open(path) as img:
+            init_size = os.path.getsize(path)
+            is_animated = bool(getattr(img, "is_animated", False) and getattr(img, "n_frames", 1) > 1)
+            frame_count = getattr(img, "n_frames", 1)
+
+            if not is_animated:
+                return
+
+            print(f"{local_version} | Initial WEBP: {path}")
+            print(
+                f"{local_version} | WxH={img.width}x{img.height} | Animated=True "
+                f"| Frames={frame_count} | Size={init_size/1024:.2f} KB "
+                f"| Target={gif_cfg.target_min_mb:.2f}-{gif_cfg.target_max_mb:.2f} MB"
+            )
+
+            if target_min_bytes <= init_size <= target_max_bytes:
+                print(f"{local_version} | ✅ WEBP already in target range, no compression needed")
+                return
+
+            frames = []
+            durations = []
+            has_alpha = "A" in (img.mode or "")
+            for frame in ImageSequence.Iterator(img):
+                mode = "RGBA" if has_alpha else "RGB"
+                frames.append(frame.convert(mode))
+                durations.append(frame.info.get("duration", 100))
+
+            stats_mgr_webp = AnimatedWebPStatsManager(STATS_FILE)
+            _compress_animated_webp(
+                frames,
+                durations,
+                path,
+                init_size,
+                target_min_bytes,
+                target_max_bytes,
+                target_mid_bytes,
+                local_version,
+                gif_cfg,
+                started_at,
+                stats_mgr_webp=stats_mgr_webp,
+                width=img.width,
+                height=img.height,
+                frame_count=frame_count,
+            )
+
+    except UnidentifiedImageError:
+        print(f"{local_version} | Skipped corrupted WEBP: {path}")
+
+
+def compress_webp_until_under_target(path, gif_cfg=CONFIG.gif):
+    """Backward-compatible dispatcher by WEBP type."""
+    if _is_animated_webp(path):
+        return compress_animated_webp_until_under_target(path, gif_cfg=gif_cfg)
+    return compress_static_webp_until_under_target(path, gif_cfg=gif_cfg)
+
+
+class AnimatedWebPStatsManager:
+    """
+    Manages statistics for animated WEBP compression:
+    Tracks quality → result_size mappings to predict optimal startup quality.
+    Stores in JSON under 'webp_animated_stats' key.
+    """
+    def __init__(self, stats_file):
+        self.stats_file = stats_file
+        self.webp_stats = []
+        self._load_webp_stats()
+
+    def stats_count(self):
+        return len(self.webp_stats)
+
+    def _load_webp_stats(self):
+        if os.path.exists(self.stats_file):
+            try:
+                with open(self.stats_file, "r", encoding="utf-8-sig") as f:
+                    data = json.load(f)
+                    if isinstance(data, dict):
+                        self.webp_stats = data.get("webp_animated_stats", [])
+                    else:
+                        self.webp_stats = []
+            except Exception:
+                self.webp_stats = []
+        else:
+            self.webp_stats = []
+
+    def save_step(self, width, height, frames, init_size_mb, quality, method, result_size_mb, encode_sec):
+        """Record one compression step attempt."""
+        entry = {
+            "width": width,
+            "height": height,
+            "frames": frames,
+            "init_size_mb": round(init_size_mb, 2),
+            "quality": quality,
+            "method": method,
+            "result_size_mb": round(result_size_mb, 2),
+            "encode_sec": round(encode_sec, 2),
+            "timestamp": time.time(),
+        }
+        self.webp_stats.append(entry)
+        self._persist_webp_stats()
+
+    def _persist_webp_stats(self):
+        """Write webp_animated_stats back to JSON file."""
+        try:
+            data = {}
+            if os.path.exists(self.stats_file):
+                with open(self.stats_file, "r", encoding="utf-8-sig") as f:
+                    content = json.load(f)
+                    # If old list format (GIF stats only), migrate into dict schema.
+                    if isinstance(content, list):
+                        data = {"gif_stats": content}
+                    else:
+                        data = content
+            data["webp_animated_stats"] = self.webp_stats
+            with open(self.stats_file, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2)
+        except Exception as e:
+            print(f"{VERSION} | Warning: failed to save webp_animated_stats: {e}")
+
+    def predict_startup_quality(self, width, height, frames, init_size_mb, target_min_mb, target_max_mb, gif_cfg):
+        """
+        Find similar files and their successful quality values.
+        Return quality q that landed in target range, or None to use default (95).
+        """
+        max_diff_ratio = 0.20
+        target_mid_mb = (target_min_mb + target_max_mb) / 2.0
+        candidates = []
+
+        for entry in self.webp_stats:
+            # Check if this entry is similar in dimensions and frame count
+            width_diff = abs(entry["width"] - width) / max(width, 1)
+            height_diff = abs(entry["height"] - height) / max(height, 1)
+            frame_diff = abs(entry["frames"] - frames) / max(frames, 1)
+
+            if width_diff <= max_diff_ratio and height_diff <= max_diff_ratio and frame_diff <= max_diff_ratio:
+                result_size = entry["result_size_mb"]
+                # Check if this result was successful (within or close to target)
+                if target_min_mb - 0.3 <= result_size <= target_max_mb + 0.3:
+                    init_diff = abs(entry["init_size_mb"] - init_size_mb)
+                    mid_diff = abs(entry["result_size_mb"] - target_mid_mb)
+                    candidates.append(
+                        (
+                            entry["quality"],
+                            init_diff,
+                            mid_diff,
+                            -entry.get("timestamp", 0),
+                            entry["result_size_mb"],
+                        )
+                    )
+
+        if not candidates:
+            return None
+
+        # Priority: closest init_size -> closest target midpoint -> most recent.
+        candidates.sort(key=lambda x: (x[1], x[2], x[3]))
+        best_q = candidates[0][0]
+        return best_q
+
+
 class CompressorStatsManager:
     """
     Persists successful compression history in a JSON file and provides
@@ -210,8 +745,12 @@ class CompressorStatsManager:
     def _load_stats(self):
         if os.path.exists(self.stats_file):
             try:
-                with open(self.stats_file, "r", encoding="utf-8") as f:
-                    self.stats = json.load(f)
+                with open(self.stats_file, "r", encoding="utf-8-sig") as f:
+                    data = json.load(f)
+                    if isinstance(data, dict):
+                        self.stats = data.get("gif_stats", [])
+                    else:
+                        self.stats = data
             except Exception:
                 self.stats = []
         else:
@@ -230,8 +769,18 @@ class CompressorStatsManager:
         }
         self.stats.append(entry)
         try:
+            data = {}
+            if os.path.exists(self.stats_file):
+                with open(self.stats_file, "r", encoding="utf-8-sig") as f:
+                    existing = json.load(f)
+                    if isinstance(existing, dict):
+                        data = existing
+                    else:
+                        data = {"gif_stats": existing}
+
+            data["gif_stats"] = self.stats
             with open(self.stats_file, "w", encoding="utf-8") as f:
-                json.dump(self.stats, f, indent=2)
+                json.dump(data, f, indent=2)
         except Exception as e:
             print(f"{VERSION} | Warning: failed to save stats: {e}")
 
@@ -698,6 +1247,18 @@ def balanced_compress_gif(input_path, gif_cfg=CONFIG.gif):
                 and predicted_medcut > gif_cfg.target_max_mb * 1.20
                 and fast_size > gif_cfg.target_max_mb * 0.90
             )
+            can_skip_probe_overflow = (
+                iteration == 0
+                and source == "formula (conservative)"
+                and sample_ratio is not None
+                and predicted_medcut > gif_cfg.target_max_mb * gif_cfg.probe_skip_overflow_margin
+            )
+            can_skip_probe_underflow = (
+                iteration == 0
+                and source == "formula (conservative)"
+                and sample_ratio is not None
+                and predicted_medcut < (gif_cfg.target_min_mb - gif_cfg.probe_skip_underflow_margin_mb)
+            )
             can_skip_formula_extra = (
                 iteration == 1
                 and source == "formula (conservative)"
@@ -706,10 +1267,16 @@ def balanced_compress_gif(input_path, gif_cfg=CONFIG.gif):
                 and predicted_medcut > gif_cfg.target_max_mb * 1.10
                 and fast_size > gif_cfg.target_min_mb * 0.90
             )
-            if can_skip_first_med or can_skip_formula_extra:
+            if can_skip_first_med or can_skip_probe_overflow or can_skip_probe_underflow or can_skip_formula_extra:
                 debug_log("decision=skip_first_med | reason=formula prediction well above target")
                 high_scale = scale
                 suggested_scale = scale * (target_mid / predicted_medcut) ** 0.5 if predicted_medcut > 0 else scale
+
+                if can_skip_probe_underflow:
+                    low_scale = scale
+                    high_scale = max(high_scale, 4.0)
+                elif can_skip_probe_overflow:
+                    high_scale = scale
 
                 if can_skip_formula_extra:
                     formula_extra_skip_used = True
@@ -723,7 +1290,8 @@ def balanced_compress_gif(input_path, gif_cfg=CONFIG.gif):
                 if not (low_scale < suggested_scale < high_scale):
                     suggested_scale = (low_scale + high_scale) / 2
 
-                print(f"{VERSION} | Skipping MEDIANCUT on iter 1 (predicted too large) -> next scale={suggested_scale:.3f}")
+                reason = "predicted too large" if (can_skip_first_med or can_skip_probe_overflow or can_skip_formula_extra) else "predicted too small"
+                print(f"{VERSION} | Skipping MEDIANCUT on iter {iteration+1} ({reason}) -> next scale={suggested_scale:.3f}")
                 scale = suggested_scale
                 continue
 
@@ -1006,25 +1574,31 @@ def balanced_compress_gif(input_path, gif_cfg=CONFIG.gif):
 
 
 def process_gifs(root_folder):
-    """Recursively walks the folder and calls balanced_compress_gif for GIF files larger than min_process_size_mb."""
+    """GIF block: compress oversized GIFs and oversized animated WEBPs."""
     worked = False
 
     for root, _, files in os.walk(root_folder):
         for file in files:
-            if not file.lower().endswith(".gif"):
+            lower = file.lower()
+            is_gif = lower.endswith(".gif")
+            is_webp = lower.endswith(".webp")
+            if not (is_gif or is_webp):
                 continue
 
-            gif_path = os.path.join(root, file)
-            size_mb = os.path.getsize(gif_path) / (1024 * 1024)
+            file_path = os.path.join(root, file)
+            size_mb = os.path.getsize(file_path) / (1024 * 1024)
             if size_mb <= CONFIG.gif.min_process_size_mb:
                 continue
 
             worked = True
 
             try:
-                balanced_compress_gif(gif_path)
+                if is_gif:
+                    balanced_compress_gif(file_path)
+                elif is_webp:
+                    compress_animated_webp_until_under_target(file_path)
             except Exception as e:
-                print(f"{VERSION} | Error processing {gif_path}: {e}")
+                print(f"{VERSION} | Error processing {file_path}: {e}")
 
     return worked
 
@@ -1033,7 +1607,18 @@ if __name__ == "__main__":
     process_images(ROOT_FOLDER_PATH)
     process_gifs(ROOT_FOLDER_PATH)
 
-    print("✅ All PNGs converted/compressed, oversized JPGs shrunk, and oversized GIFs compressed.")
+    print("✅ All PNGs converted/compressed, oversized Webps, JPGs shrunk, and oversized GIFs, Webps compressed.")
+
+    # Note for maintenance: if stats file grows beyond soft limit, consider cleanup/aggregation.
+    try:
+        stats_size_mb = os.path.getsize(STATS_FILE) / (1024 * 1024)
+        if stats_size_mb >= CONFIG.stats_soft_limit_mb:
+            print(
+                f"{VERSION} | ⚠ Stats note: {os.path.basename(STATS_FILE)} is {stats_size_mb:.2f} MB "
+                f"(>= {CONFIG.stats_soft_limit_mb:.0f} MB). Consider rotating/compressing stats."
+            )
+    except OSError:
+        pass
 
     stats_script = os.path.join(os.path.dirname(__file__), "StatsCompressor.py")
     try:
