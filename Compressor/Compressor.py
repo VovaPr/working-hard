@@ -1,8 +1,11 @@
-﻿import subprocess
-import io, json, os, subprocess, sys, time
+﻿
+# Standard library imports
+import os, sys, time, io, json, subprocess
+from datetime import datetime
 from dataclasses import dataclass, field
 from concurrent.futures import ProcessPoolExecutor
 
+# Third-party imports
 from PIL import Image, ImageSequence, UnidentifiedImageError
 
 start_time = time.time()
@@ -65,7 +68,7 @@ class GIFConfig:
 
 @dataclass(frozen=True)
 class AppConfig:
-    version: str = "Compressor v8.57.0"
+    version: str = "Compressor v8.59.0"
     root_folder_path: str = r"C:\other\lab\pic"
     stats_file: str = field(default_factory=lambda: os.path.join(os.path.dirname(__file__), "CompressorStats.JSON"))
     stats_soft_limit_mb: float = 50.0
@@ -1817,13 +1820,34 @@ if __name__ == "__main__":
         gif_count = len(stats_data.get("gif_stats", []))
         webp_count = len(stats_data.get("webp_animated_stats", []))
         print(f"{VERSION} | GIF — {gif_count} items | WEBP — {webp_count} items")
+        # Total number of files in the root folder for scan (before filtering)
+        import subprocess
+        def count_files_in_dir(root_folder):
+            try:
+                # Try to use Everything CLI (es.exe) for fast file counting
+                result = subprocess.run([
+                    "es.exe",
+                    "-count",
+                    f"-path={root_folder}"
+                ], capture_output=True, text=True, timeout=10)
+                if result.returncode == 0:
+                    count_str = result.stdout.strip()
+                    if count_str.isdigit():
+                        return int(count_str)
+            except Exception:
+                pass
+            # Fallback to os.walk if es.exe is not available or fails
+            count = 0
+            for _, _, files in os.walk(root_folder):
+                count += len(files)
+            return count
+        total_files_in_dir = count_files_in_dir(ROOT_FOLDER_PATH)
     except Exception as e:
         print(f"{VERSION} | Stats count error: {e}")
 
-    # Итоговые строки для пользователя
-    print(f"ℹ️ Scan time: {RUN_METRICS['scan_sec']:.2f} sec. Reason: Normal for this file count.")
-    print("✅ All PNGs converted/compressed, oversized Webps, JPGs shrunk, and oversized GIFs, Webps compressed.")
-
+    # Final output for user
+    scan_time_str = f"ℹ️ Scan time: {RUN_METRICS['scan_sec']:.2f} sec. Total number of files in folder: {total_files_in_dir}"
+    print(scan_time_str)
     end_time = time.time()
     elapsed = end_time - start_time
-    print(f"Total execution time: {elapsed:.2f} sec")
+    print(f"Total execution time: {elapsed:.2f} sec. Current time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
