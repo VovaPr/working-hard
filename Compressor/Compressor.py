@@ -1,4 +1,5 @@
-﻿import io, json, os, subprocess, sys, time
+﻿import subprocess
+import io, json, os, subprocess, sys, time
 from dataclasses import dataclass, field
 from concurrent.futures import ProcessPoolExecutor
 
@@ -162,39 +163,36 @@ def scan_media_candidates(root_folder_path):
     animated_webp_paths = []
     started_at = time.time()
 
-    for folder_path, _, filenames in os.walk(root_folder_path):
+    # Обычный обход файловой системы (os.walk)
+    files = []
+    for dirpath, dirnames, filenames in os.walk(root_folder_path):
         for filename in filenames:
-            lower = filename.lower()
-            file_path = os.path.join(folder_path, filename)
+            files.append(os.path.join(dirpath, filename))
 
-            if lower.endswith(".gif"):
-                size_mb = os.path.getsize(file_path) / (1024 * 1024)
-                if size_mb > CONFIG.gif.min_process_size_mb:
-                    gif_paths.append(file_path)
-                continue
-
-            if lower.endswith(".png"):
-                png_paths.append(file_path)
-                continue
-
-            if lower.endswith((".jpg", ".jpeg")):
-                if os.path.getsize(file_path) > TARGET_SIZE:
-                    jpg_paths.append(file_path)
-                continue
-
-            if not lower.endswith(".webp"):
-                continue
-
-            size_bytes = os.path.getsize(file_path)
-            if size_bytes <= TARGET_SIZE:
-                continue
-
-            if _is_animated_webp_fast(file_path):
-                if (size_bytes / (1024 * 1024)) > CONFIG.gif.min_process_size_mb:
-                    animated_webp_paths.append(file_path)
-                continue
-
-            static_webp_paths.append(file_path)
+    for file_path in files:
+        lower = file_path.lower()
+        if lower.endswith('.gif'):
+            size_mb = os.path.getsize(file_path) / (1024 * 1024)
+            if size_mb > CONFIG.gif.min_process_size_mb:
+                gif_paths.append(file_path)
+            continue
+        if lower.endswith('.png'):
+            png_paths.append(file_path)
+            continue
+        if lower.endswith(('.jpg', '.jpeg')):
+            if os.path.getsize(file_path) > TARGET_SIZE:
+                jpg_paths.append(file_path)
+            continue
+        if not lower.endswith('.webp'):
+            continue
+        size_bytes = os.path.getsize(file_path)
+        if size_bytes <= TARGET_SIZE:
+            continue
+        if _is_animated_webp_fast(file_path):
+            if (size_bytes / (1024 * 1024)) > CONFIG.gif.min_process_size_mb:
+                animated_webp_paths.append(file_path)
+            continue
+        static_webp_paths.append(file_path)
 
     RUN_METRICS["scan_sec"] = time.time() - started_at
     RUN_METRICS["png_candidates"] = len(png_paths)
@@ -1790,14 +1788,6 @@ if __name__ == "__main__":
         f"gif={RUN_METRICS['gif_candidates']}, "
         f"animated_webp={RUN_METRICS['animated_webp_candidates']})"
     )
-    print(
-        f"{VERSION} | process_images={images_elapsed:.2f} sec "
-        f"(worked={'yes' if images_worked else 'no'}, files={len(png_paths) + len(jpg_paths) + len(static_webp_paths)})"
-    )
-    print(
-        f"{VERSION} | process_gifs={gifs_elapsed:.2f} sec "
-        f"(worked={'yes' if gifs_worked else 'no'}, files={len(gif_paths) + len(animated_webp_paths)})"
-    )
 
     # Note for maintenance: if stats file grows beyond soft limit, consider cleanup/aggregation.
     try:
@@ -1817,7 +1807,18 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"StatsCompressor failed: {e}")
     stats_elapsed = time.time() - stats_started_at
+
     print(f"{VERSION} | stats_compressor={stats_elapsed:.2f} sec")
+
+    # Вывод количества элементов статистики для GIF и WEBP
+    try:
+        with open(STATS_FILE, "r", encoding="utf-8-sig") as f:
+            stats_data = json.load(f)
+        gif_count = len(stats_data.get("gif_stats", []))
+        webp_count = len(stats_data.get("webp_animated_stats", []))
+        print(f"{VERSION} | GIF — {gif_count} items | WEBP — {webp_count} items")
+    except Exception as e:
+        print(f"{VERSION} | Stats count error: {e}")
 
     # Итоговые строки для пользователя
     print(f"ℹ️ Scan time: {RUN_METRICS['scan_sec']:.2f} sec. Reason: Normal for this file count.")

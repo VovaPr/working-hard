@@ -1,23 +1,26 @@
 import json, os, time
 
 class StatsCompressor:
-    VERSION = "StatsCompressor v2.1"
+    VERSION = "StatsCompressor v2.2"
 
     def __init__(self, path):
         self.path = path
         self.data = self._load()
 
     def _load(self):
-        """Load statistics from JSON file if it exists."""
+        """Load statistics from JSON file if it exists. Supports {\"gif_stats\": [...]} format."""
         if os.path.exists(self.path):
             with open(self.path, "r") as f:
-                return json.load(f)
+                data = json.load(f)
+                if isinstance(data, dict) and "gif_stats" in data:
+                    return data["gif_stats"]
+                return data
         return []
 
     def save(self):
-        """Save current statistics back to JSON file."""
+        """Save current statistics back to JSON file in {\"gif_stats\": [...]} format."""
         with open(self.path, "w") as f:
-            json.dump(self.data, f, indent=2)
+            json.dump({"gif_stats": self.data}, f, indent=2)
 
     def compress(self, max_records_per_group=20):
         """
