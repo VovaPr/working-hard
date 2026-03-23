@@ -65,7 +65,7 @@ class GIFConfig:
 
 @dataclass(frozen=True)
 class AppConfig:
-    version: str = "Compressor v8.56.0"
+    version: str = "Compressor v8.57.0"
     root_folder_path: str = r"C:\other\lab\pic"
     stats_file: str = field(default_factory=lambda: os.path.join(os.path.dirname(__file__), "CompressorStats.JSON"))
     stats_soft_limit_mb: float = 50.0
@@ -1810,7 +1810,7 @@ if __name__ == "__main__":
 
     print(f"{VERSION} | stats_compressor={stats_elapsed:.2f} sec")
 
-    # Вывод количества элементов статистики для GIF и WEBP
+    # Output the number of statistics entries for GIF and WEBP
     try:
         with open(STATS_FILE, "r", encoding="utf-8-sig") as f:
             stats_data = json.load(f)
