@@ -1789,15 +1789,15 @@ if __name__ == "__main__":
 
     images_started_at = time.time()
     images_worked = process_images(png_paths, jpg_paths, static_webp_paths)
+
     images_elapsed = time.time() - images_started_at
 
     gifs_started_at = time.time()
     gifs_worked = process_gifs(gif_paths, animated_webp_paths)
     gifs_elapsed = time.time() - gifs_started_at
 
-    print(f"{VERSION} | ✅ Scan complete: PNG, JPG/JPEG, static WEBP, GIF, and animated WEBP queues processed.")
     print(
-        f"{VERSION} | scan_media={RUN_METRICS['scan_sec']:.2f} sec "
+        f"{VERSION} | ✅ Scan complete: scan_media={RUN_METRICS['scan_sec']:.2f} sec "
         f"(png={RUN_METRICS['png_candidates']}, "
         f"jpg={RUN_METRICS['jpg_candidates']}, "
         f"static_webp={RUN_METRICS['static_webp_candidates']}, "
