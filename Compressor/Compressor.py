@@ -1,4 +1,10 @@
-﻿
+﻿"""
+GOAL: Reliably compress GIF files to the target size of 13.5–14.99 MB
+in 30 seconds on average, without quality degradation.
+Strategy: Accurate initial scale prediction from historical run stats
+→ at most 1–2 MEDIANCUT calls per file.
+"""
+
 # Standard library imports
 import os, sys, time, io, json, subprocess
 from datetime import datetime
@@ -9,14 +15,6 @@ from concurrent.futures import ProcessPoolExecutor
 from PIL import Image, ImageSequence, UnidentifiedImageError
 
 start_time = time.time()
-
-# =============================================================================
-# GOAL: reliably compress GIF files to the target size of 13.5–14.99 MB
-# in 30 seconds on average, without quality degradation.
-# Strategy: accurate initial scale prediction from historical run stats
-# → at most 1–2 MEDIANCUT calls per file.
-# =============================================================================
-
 
 @dataclass(frozen=True)
 class JPGConfig:
@@ -166,7 +164,7 @@ def scan_media_candidates(root_folder_path):
     animated_webp_paths = []
     started_at = time.time()
 
-    # Обычный обход файловой системы (os.walk)
+    # Standard filesystem traversal (os.walk)
     files = []
     for dirpath, dirnames, filenames in os.walk(root_folder_path):
         for filename in filenames:
@@ -208,6 +206,8 @@ def scan_media_candidates(root_folder_path):
 
 def process_images(png_paths, jpg_paths, static_webp_paths):
     """Image block: convert PNG to JPG, compress oversized JPG/JPEG, and compress static WEBP."""
+    # Main entry point for processing all static images (PNG, JPG, static WEBP)
+    # Handles conversion, compression, and error reporting for each file type
     worked = False
 
     for png_path in png_paths:
@@ -260,7 +260,11 @@ def process_images(png_paths, jpg_paths, static_webp_paths):
 
 
 def compress_until_under_target(path, target_size=TARGET_SIZE):
-    """Iteratively reduces JPEG quality (and resolution if needed) until target_size is reached."""
+    """
+    Compress a JPEG file to fit under the target size by first reducing quality,
+    then resizing if necessary. The process minimizes quality loss while ensuring
+    the output file does not exceed the specified size.
+    """
     local_version = VERSION
     started_at = time.time()
 
@@ -650,6 +654,8 @@ def _compress_animated_webp(
 
 def compress_static_webp_until_under_target(path, gif_cfg=CONFIG.gif):
     """Static WEBP path: image/JPG-style logic with WEBP output preserved."""
+    # Handles static WEBP files using a similar approach as JPEG compression
+    # Converts to RGB/RGBA as needed, then compresses with quality/resize loop
     local_version = VERSION
     started_at = time.time()
 
@@ -698,7 +704,10 @@ def compress_static_webp_until_under_target(path, gif_cfg=CONFIG.gif):
 
 
 def compress_animated_webp_until_under_target(path, gif_cfg=CONFIG.gif):
-    """Animated WEBP path: GIF-style block for heavy frame compression."""
+    """
+    Compresses animated WEBP files by extracting frames, applying a GIF-style compression strategy,
+    and saving the result. Uses a stats manager to optimize quality selection based on previous runs.
+    """
     local_version = VERSION
     started_at = time.time()
     target_min_bytes = int(gif_cfg.target_min_mb * 1024 * 1024)
@@ -767,6 +776,7 @@ class AnimatedWebPStatsManager:
     Manages statistics for animated WEBP compression:
     Tracks quality → result_size mappings to predict optimal startup quality.
     Stores in JSON under 'webp_animated_stats' key.
+    Used to speed up future compressions by learning from previous results.
     """
     def __init__(self, stats_file):
         self.stats_file = stats_file
@@ -914,6 +924,7 @@ class CompressorStatsManager:
       - neighbor_scale:        mean across similar files (close size/resolution/frames)
       - regression_coefficients: linear regression fast_size → med_size
       - predict_mediancut:    estimates post-MEDIANCUT size before running it
+    Used for GIF compression to improve initial scale prediction and reduce trial/error.
     """
     def __init__(self, stats_file):
         self.stats_file = stats_file
@@ -1207,6 +1218,7 @@ def _choose_initial_scale(stats_mgr, palette_limit, width, height, total_frames,
       2. neighbor stats — mean from similar files
       3. delta_avg     — scale derived from average fast→med size delta
       4. formula       — approximate scale from file size ratio
+    This function helps avoid unnecessary MEDIANCUT runs by starting with a good guess.
     """
     avg_scale = stats_mgr.average_scale_recent(palette_limit, width, height, total_frames)
     delta_avg = stats_mgr.find_delta(palette_limit, width, height, total_frames)
@@ -1231,6 +1243,7 @@ def _next_scale(scale, low_scale, high_scale, med_cache, target_mid, max_step_ra
     """
     Computes the next scale: binary search with step size capped at max_step_ratio.
     When two points exist in med_cache, applies the secant method for faster convergence.
+    Used in GIF compression loop to efficiently converge on the correct scale.
     """
     new_scale = (low_scale + high_scale) / 2
 
@@ -1848,6 +1861,7 @@ if __name__ == "__main__":
     # Final output for user
     scan_time_str = f"ℹ️ Scan time: {RUN_METRICS['scan_sec']:.2f} sec. Total number of files in folder: {total_files_in_dir}"
     print(scan_time_str)
+    print("✅ All images converted/compressed and oversized GIFs, Webps compressed.")
     end_time = time.time()
     elapsed = end_time - start_time
     print(f"Total execution time: {elapsed:.2f} sec. Current time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
