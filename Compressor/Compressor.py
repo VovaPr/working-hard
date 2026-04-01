@@ -242,7 +242,7 @@ def process_images(png_paths, jpg_paths, static_webp_paths):
                     jpg_image = prepared.convert("RGB")
 
                 save_kwargs = {
-                    "quality": 95,
+                    "quality": 100,
                     "optimize": True,
                     "progressive": True,
                     "subsampling": 0,
