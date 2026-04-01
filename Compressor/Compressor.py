@@ -66,7 +66,7 @@ class GIFConfig:
 
 @dataclass(frozen=True)
 class AppConfig:
-    version: str = "Compressor v8.59.3"
+    version: str = "Compressor v8.59.4"
     root_folder_path: str = r"C:\other\lab\pic"
     stats_file: str = field(default_factory=lambda: os.path.join(os.path.dirname(__file__), "CompressorStats.JSON"))
     stats_soft_limit_mb: float = 50.0
@@ -298,6 +298,7 @@ def compress_until_under_target(path, target_size=TARGET_SIZE):
     """
     local_version = VERSION
     started_at = time.time()
+    min_quality_before_resize = 80
 
     def _encode_jpeg_buffer(image, quality):
         buf = io.BytesIO()
@@ -311,14 +312,35 @@ def compress_until_under_target(path, target_size=TARGET_SIZE):
         )
         return buf
 
+    def _find_best_quality_buffer(image, size_limit, q_min, q_max):
+        """Return the highest quality in [q_min, q_max] that fits size_limit."""
+        low = q_min
+        high = q_max
+        best_quality = None
+        best_buf = None
+        best_size = None
+
+        while low <= high:
+            mid = (low + high) // 2
+            mid_buf = _encode_jpeg_buffer(image, mid)
+            mid_size = len(mid_buf.getvalue())
+            if mid_size <= size_limit:
+                best_quality = mid
+                best_buf = mid_buf
+                best_size = mid_size
+                low = mid + 1
+            else:
+                high = mid - 1
+
+        return best_quality, best_buf, best_size
+
     try:
         with Image.open(path) as img:
             img = img.convert("RGB")
             resize_count = 0
 
             init_size = os.path.getsize(path)
-            overflow_init_ratio = max(0.0, (init_size - target_size) / max(target_size, 1))
-            quality = 100 if overflow_init_ratio <= 0.20 else QUALITY_MAX
+            quality = 100
             print(f"{local_version} | Initial File: {path}")
             print(
                 f"{local_version} | WxH={img.width}x{img.height} | Quality={quality} "
@@ -329,63 +351,36 @@ def compress_until_under_target(path, target_size=TARGET_SIZE):
                 print(f"{local_version} | ✅ Already under target, no compression needed")
                 return
 
-            # For small overflow, pick the highest quality that already fits target.
-            if overflow_init_ratio <= 0.20:
-                for probe_quality in range(100, 79, -1):
-                    probe_buf = _encode_jpeg_buffer(img, probe_quality)
-                    probe_size = len(probe_buf.getvalue())
-                    if probe_size <= target_size:
-                        with open(path, "wb") as f:
-                            f.write(probe_buf.getvalue())
-                        elapsed = time.time() - started_at
-                        print(
-                            f"{local_version} | ✅ Success: {init_size/1024:.2f} KB -> {probe_size/1024:.2f} KB "
-                            f"| Quality={probe_quality} | Resized {resize_count} times"
-                        )
-                        print(f"{local_version} | Finished in {elapsed:.2f} sec")
-                        return
-
             while True:
-                buf = _encode_jpeg_buffer(img, quality)
-                file_size = len(buf.getvalue())
-
-                if file_size <= target_size:
+                best_quality, best_buf, best_size = _find_best_quality_buffer(
+                    img,
+                    target_size,
+                    min_quality_before_resize,
+                    100,
+                )
+                if best_buf is not None:
                     with open(path, "wb") as f:
-                        f.write(buf.getvalue())
+                        f.write(best_buf.getvalue())
                     elapsed = time.time() - started_at
                     print(
-                        f"{local_version} | ✅ Success: {init_size/1024:.2f} KB -> {file_size/1024:.2f} KB "
-                        f"| Quality={quality} | Resized {resize_count} times"
+                        f"{local_version} | ✅ Success: {init_size/1024:.2f} KB -> {best_size/1024:.2f} KB "
+                        f"| Quality={best_quality} | Resized {resize_count} times"
                     )
                     print(f"{local_version} | Finished in {elapsed:.2f} sec")
                     return
 
-                correction = (target_size / file_size) ** 0.5
-                overflow_ratio = max(0.0, (file_size - target_size) / max(target_size, 1))
-
-                if quality <= 80:
-                    new_w = max(1, int(img.width * correction))
-                    new_h = max(1, int(img.height * correction))
-                    img = img.resize((new_w, new_h), Image.LANCZOS)
-                    resize_count += 1
-                    quality = QUALITY_MAX
-                    print(f"{local_version} | Step {resize_count} | Resized to {new_w}x{new_h}, reset quality={quality}")
-                    continue
-
-                if overflow_ratio <= 0.03:
-                    quality_step = 1
-                elif overflow_ratio <= 0.08:
-                    quality_step = 2
-                elif overflow_ratio <= 0.20:
-                    quality_step = 3
-                else:
-                    quality_step = 5
-
-                new_quality = max(80, quality - quality_step)
-                quality = new_quality
+                # Even q_min does not fit target: reduce resolution slightly and retry quality search.
+                min_q_buf = _encode_jpeg_buffer(img, min_quality_before_resize)
+                min_q_size = len(min_q_buf.getvalue())
+                correction = (target_size / max(min_q_size, 1)) ** 0.5
+                correction = max(0.88, min(0.98, correction))
+                new_w = max(1, int(img.width * correction))
+                new_h = max(1, int(img.height * correction))
+                img = img.resize((new_w, new_h), Image.LANCZOS)
+                resize_count += 1
                 print(
-                    f"{local_version} | Step {resize_count+1} | Quality={quality} "
-                    f"| overflow={overflow_ratio*100:.2f}%"
+                    f"{local_version} | Step {resize_count} | Resized to {new_w}x{new_h}, "
+                    f"q{min_quality_before_resize} size={min_q_size/1024:.2f} KB"
                 )
 
     except UnidentifiedImageError:
