@@ -66,7 +66,7 @@ class GIFConfig:
 
 @dataclass(frozen=True)
 class AppConfig:
-    version: str = "Compressor v8.59.1"
+    version: str = "Compressor v8.59.2"
     root_folder_path: str = r"C:\other\lab\pic"
     stats_file: str = field(default_factory=lambda: os.path.join(os.path.dirname(__file__), "CompressorStats.JSON"))
     stats_soft_limit_mb: float = 50.0
@@ -318,7 +318,14 @@ def compress_until_under_target(path, target_size=TARGET_SIZE):
 
             while True:
                 buf = io.BytesIO()
-                img.save(buf, "JPEG", quality=quality, optimize=True, progressive=True)
+                img.save(
+                    buf,
+                    "JPEG",
+                    quality=quality,
+                    optimize=True,
+                    progressive=True,
+                    subsampling=0,
+                )
                 file_size = len(buf.getvalue())
 
                 if file_size <= target_size:
@@ -333,7 +340,9 @@ def compress_until_under_target(path, target_size=TARGET_SIZE):
                     return
 
                 correction = (target_size / file_size) ** 0.5
-                if quality <= 50:
+                overflow_ratio = max(0.0, (file_size - target_size) / max(target_size, 1))
+
+                if quality <= 80:
                     new_w = max(1, int(img.width * correction))
                     new_h = max(1, int(img.height * correction))
                     img = img.resize((new_w, new_h), Image.LANCZOS)
@@ -342,8 +351,21 @@ def compress_until_under_target(path, target_size=TARGET_SIZE):
                     print(f"{local_version} | Step {resize_count} | Resized to {new_w}x{new_h}, reset quality={quality}")
                     continue
 
-                quality = max(50, int(quality * correction))
-                print(f"{local_version} | Step {resize_count+1} | Quality={quality}")
+                if overflow_ratio <= 0.03:
+                    quality_step = 1
+                elif overflow_ratio <= 0.08:
+                    quality_step = 2
+                elif overflow_ratio <= 0.20:
+                    quality_step = 3
+                else:
+                    quality_step = 5
+
+                new_quality = max(80, quality - quality_step)
+                quality = new_quality
+                print(
+                    f"{local_version} | Step {resize_count+1} | Quality={quality} "
+                    f"| overflow={overflow_ratio*100:.2f}%"
+                )
 
     except UnidentifiedImageError:
         print(f"{local_version} | Skipped corrupted file: {path}")
