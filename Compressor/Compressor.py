@@ -66,7 +66,7 @@ class GIFConfig:
 
 @dataclass(frozen=True)
 class AppConfig:
-    version: str = "Compressor v8.59.2"
+    version: str = "Compressor v8.59.3"
     root_folder_path: str = r"C:\other\lab\pic"
     stats_file: str = field(default_factory=lambda: os.path.join(os.path.dirname(__file__), "CompressorStats.JSON"))
     stats_soft_limit_mb: float = 50.0
@@ -299,13 +299,26 @@ def compress_until_under_target(path, target_size=TARGET_SIZE):
     local_version = VERSION
     started_at = time.time()
 
+    def _encode_jpeg_buffer(image, quality):
+        buf = io.BytesIO()
+        image.save(
+            buf,
+            "JPEG",
+            quality=quality,
+            optimize=True,
+            progressive=True,
+            subsampling=0,
+        )
+        return buf
+
     try:
         with Image.open(path) as img:
             img = img.convert("RGB")
-            quality = QUALITY_MAX
             resize_count = 0
 
             init_size = os.path.getsize(path)
+            overflow_init_ratio = max(0.0, (init_size - target_size) / max(target_size, 1))
+            quality = 100 if overflow_init_ratio <= 0.20 else QUALITY_MAX
             print(f"{local_version} | Initial File: {path}")
             print(
                 f"{local_version} | WxH={img.width}x{img.height} | Quality={quality} "
@@ -316,16 +329,24 @@ def compress_until_under_target(path, target_size=TARGET_SIZE):
                 print(f"{local_version} | ✅ Already under target, no compression needed")
                 return
 
+            # For small overflow, pick the highest quality that already fits target.
+            if overflow_init_ratio <= 0.20:
+                for probe_quality in range(100, 79, -1):
+                    probe_buf = _encode_jpeg_buffer(img, probe_quality)
+                    probe_size = len(probe_buf.getvalue())
+                    if probe_size <= target_size:
+                        with open(path, "wb") as f:
+                            f.write(probe_buf.getvalue())
+                        elapsed = time.time() - started_at
+                        print(
+                            f"{local_version} | ✅ Success: {init_size/1024:.2f} KB -> {probe_size/1024:.2f} KB "
+                            f"| Quality={probe_quality} | Resized {resize_count} times"
+                        )
+                        print(f"{local_version} | Finished in {elapsed:.2f} sec")
+                        return
+
             while True:
-                buf = io.BytesIO()
-                img.save(
-                    buf,
-                    "JPEG",
-                    quality=quality,
-                    optimize=True,
-                    progressive=True,
-                    subsampling=0,
-                )
+                buf = _encode_jpeg_buffer(img, quality)
                 file_size = len(buf.getvalue())
 
                 if file_size <= target_size:
