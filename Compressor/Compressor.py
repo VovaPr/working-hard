@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from concurrent.futures import ProcessPoolExecutor
 
 # Third-party imports
-from PIL import Image, ImageSequence, UnidentifiedImageError
+from PIL import Image, ImageOps, ImageSequence, UnidentifiedImageError
 
 start_time = time.time()
 
@@ -220,8 +220,39 @@ def process_images(png_paths, jpg_paths, static_webp_paths):
                 print(f"{VERSION} | Initial PNG: {png_path}")
                 print(f"{VERSION} | WxH={img.width}x{img.height} | Size={png_size/1024:.2f} KB")
 
-                img = img.convert("RGB")
-                img.save(jpg_path, "JPEG", quality=100, optimize=True, progressive=True)
+                # Preserve orientation and metadata while converting PNG alpha to an RGB background.
+                prepared = ImageOps.exif_transpose(img)
+                icc_profile = img.info.get("icc_profile")
+                exif = img.getexif()
+                exif_bytes = None
+                if exif:
+                    exif[274] = 1
+                    exif_bytes = exif.tobytes()
+
+                has_alpha = (
+                    "A" in prepared.getbands()
+                    or (prepared.mode == "P" and "transparency" in prepared.info)
+                )
+                if has_alpha:
+                    rgba = prepared.convert("RGBA")
+                    bg = Image.new("RGB", rgba.size, (255, 255, 255))
+                    bg.paste(rgba, mask=rgba.getchannel("A"))
+                    jpg_image = bg
+                else:
+                    jpg_image = prepared.convert("RGB")
+
+                save_kwargs = {
+                    "quality": 95,
+                    "optimize": True,
+                    "progressive": True,
+                    "subsampling": 0,
+                }
+                if icc_profile:
+                    save_kwargs["icc_profile"] = icc_profile
+                if exif_bytes:
+                    save_kwargs["exif"] = exif_bytes
+
+                jpg_image.save(jpg_path, "JPEG", **save_kwargs)
 
             jpg_size = os.path.getsize(jpg_path)
             print(f"{VERSION} | Converted PNG -> JPG: {jpg_path}")
