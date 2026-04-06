@@ -34,6 +34,9 @@ class GIFConfig:
     min_process_size_mb: float = 15.0
     max_scale_step_ratio: float = 0.15
     neighbor_scale_safety: float = 0.95
+    neighbor_scale_safety_confident: float = 0.985
+    neighbor_scale_confident_min_count: int = 4
+    neighbor_scale_confident_max_std: float = 0.035
     temporal_preserve_enabled: bool = True
     temporal_min_frames: int = 360
     temporal_max_pixels: int = 100000
@@ -68,7 +71,7 @@ class GIFConfig:
 
 @dataclass(frozen=True)
 class AppConfig:
-    version: str = "Compressor v8.59.5"
+    version: str = "Compressor v8.59.6"
     root_folder_path: str = r"C:\other\lab\pic"
     stats_file: str = field(default_factory=lambda: os.path.join(os.path.dirname(__file__), "CompressorStats.JSON"))
     stats_soft_limit_mb: float = 50.0
@@ -1120,7 +1123,12 @@ class CompressorStatsManager:
         return a, b
 
     def neighbor_scale(self, palette, width, height, frames, max_diff_ratio=0.15):
+        profile = self.neighbor_scale_profile(palette, width, height, frames, max_diff_ratio=max_diff_ratio)
+        return profile["scale"] if profile else None
+
+    def neighbor_scale_profile(self, palette, width, height, frames, max_diff_ratio=0.15):
         candidates = []
+        weights = []
         for entry in self.stats:
             if abs(entry["palette"] - palette) > 8:
                 continue
@@ -1128,12 +1136,31 @@ class CompressorStatsManager:
             width_diff = abs(entry["width"] - width) / width
             height_diff = abs(entry["height"] - height) / height
             frame_diff = abs(entry["frames"] - frames) / frames
+            palette_diff = abs(entry["palette"] - palette) / 32.0
 
             if width_diff <= max_diff_ratio and height_diff <= max_diff_ratio and frame_diff <= max_diff_ratio:
                 if entry.get("scale", 0) > 0:
                     candidates.append(entry["scale"])
+                    distance = width_diff + height_diff + frame_diff + palette_diff
+                    weights.append(1.0 / (0.05 + distance))
 
-        return (sum(candidates) / len(candidates)) if candidates else None
+        if not candidates:
+            return None
+
+        weight_sum = sum(weights)
+        if weight_sum <= 0:
+            mean_scale = sum(candidates) / len(candidates)
+            variance = sum((s - mean_scale) ** 2 for s in candidates) / len(candidates)
+        else:
+            mean_scale = sum(s * w for s, w in zip(candidates, weights)) / weight_sum
+            variance = sum(w * (s - mean_scale) ** 2 for s, w in zip(candidates, weights)) / weight_sum
+
+        std_scale = variance ** 0.5
+        return {
+            "scale": mean_scale,
+            "std": std_scale,
+            "count": len(candidates),
+        }
 
 
 def process_frame_med_cut(args):
@@ -1321,15 +1348,32 @@ def _choose_initial_scale(stats_mgr, palette_limit, width, height, total_frames,
     """
     avg_scale = stats_mgr.average_scale_recent(palette_limit, width, height, total_frames)
     delta_avg = stats_mgr.find_delta(palette_limit, width, height, total_frames)
-    neighbor_scale = stats_mgr.neighbor_scale(palette_limit, width, height, total_frames)
+    neighbor_profile = stats_mgr.neighbor_scale_profile(palette_limit, width, height, total_frames)
 
     if avg_scale:
         return avg_scale, "stats"
-    if neighbor_scale:
+    if neighbor_profile:
         # Neighbor-derived scale can be optimistic for unseen GIFs.
-        # A small safety shrink reduces expensive MEDIANCUT re-runs.
-        safe_neighbor_scale = neighbor_scale * gif_cfg.neighbor_scale_safety
-        return safe_neighbor_scale, f"neighbor stats (safe x{gif_cfg.neighbor_scale_safety:.2f})"
+        # Confidence-aware safety: use less shrink for dense/low-variance neighborhood.
+        neighbor_scale = neighbor_profile["scale"]
+        neighbor_std = neighbor_profile["std"]
+        neighbor_count = neighbor_profile["count"]
+
+        is_confident_neighbor = (
+            neighbor_count >= gif_cfg.neighbor_scale_confident_min_count
+            and neighbor_std <= gif_cfg.neighbor_scale_confident_max_std
+        )
+        safety = (
+            gif_cfg.neighbor_scale_safety_confident
+            if is_confident_neighbor
+            else gif_cfg.neighbor_scale_safety
+        )
+
+        safe_neighbor_scale = neighbor_scale * safety
+        return (
+            safe_neighbor_scale,
+            f"neighbor stats (safe x{safety:.3f}, n={neighbor_count}, std={neighbor_std:.3f})",
+        )
     if delta_avg is not None:
         predicted_medcut = init_size + delta_avg * bias_factor
         scale_from_delta = (target_mid / predicted_medcut) ** 0.5
