@@ -24,9 +24,16 @@ class JPGConfig:
 
 @dataclass(frozen=True)
 class GIFConfig:
-    """GIF compression parameters. Change values only here — used everywhere in the code."""
-    target_min_mb: float = 13.5
-    target_max_mb: float = 14.99
+    """GIF compression parameters. Change values only here — used everywhere in the code.
+    
+    ⚠️ CRITICAL: target_min_mb and target_max_mb are SACRED constraints.
+    NEVER widen, narrow, or relax these bounds under ANY circumstances.
+    These define the exact deliverable GIF size spec and must be met strictly.
+    Quality, iteration speed, and all predictions are tuned around these IMMUTABLE limits.
+    If requirements conflict with other goals, optimize the algorithm around them — never move them.
+    """
+    target_min_mb: float = 13.5  # SACRED: minimum GIF size (13.5 MB) — DO NOT CHANGE
+    target_max_mb: float = 14.99  # SACRED: maximum GIF size (14.99 MB) — DO NOT CHANGE
     preferred_min_mb: float = 13.8
     preferred_max_mb: float = 14.6
     max_safe_iterations: int = 10
@@ -71,7 +78,7 @@ class GIFConfig:
 
 @dataclass(frozen=True)
 class AppConfig:
-    version: str = "Compressor v8.59.6"
+    version: str = "Compressor v8.59.7"
     root_folder_path: str = r"C:\other\lab\pic"
     stats_file: str = field(default_factory=lambda: os.path.join(os.path.dirname(__file__), "CompressorStats.JSON"))
     stats_soft_limit_mb: float = 50.0
@@ -1497,6 +1504,8 @@ def balanced_compress_gif(input_path, gif_cfg=CONFIG.gif):
             )
 
             fast_in_preferred = gif_cfg.preferred_min_mb <= fast_size <= gif_cfg.preferred_max_mb
+            # ⚠️ IMMUTABLE: fast_in_target MUST check against sacred bounds [13.5, 14.99] MB.
+            # Never expand, contract, or relax this range. Period.
             fast_in_target = gif_cfg.target_min_mb <= fast_size <= gif_cfg.target_max_mb
 
             can_fast_direct_accept = (
@@ -1804,6 +1813,7 @@ def balanced_compress_gif(input_path, gif_cfg=CONFIG.gif):
                     )
 
                     if gif_cfg.target_min_mb <= t_med_size <= gif_cfg.target_max_mb + 0.005:
+                        # ⚠️ Result falls within sacred bounds. Safe to accept.
                         stats_mgr.save_stats(palette_limit, width, height, total_frames, fast_size, t_med_size, 1.0)
                         with open(input_path, "wb") as f:
                             f.write(t_buf.getvalue())
@@ -1836,6 +1846,8 @@ def balanced_compress_gif(input_path, gif_cfg=CONFIG.gif):
                 iteration >= 1
                 and gif_cfg.preferred_min_mb <= med_size <= gif_cfg.preferred_max_mb
             )
+            # ⚠️ IMMUTABLE TARGET RANGE: [13.5 MB, 14.99 MB]
+            # This is the contract. Results MUST fit here. Never relax, widen, or negotiate.
             in_target = gif_cfg.target_min_mb <= med_size <= gif_cfg.target_max_mb + 0.005
 
             can_try_quality_retry = (
@@ -1872,6 +1884,7 @@ def balanced_compress_gif(input_path, gif_cfg=CONFIG.gif):
                         f"| finished in {q_elapsed:.2f} sec"
                     )
 
+                    # ⚠️ SACRED BOUNDARIES: Result must be within [13.5, 14.99] MB. Never relax.
                     if gif_cfg.target_min_mb <= q_med_size <= gif_cfg.target_max_mb + 0.005:
                         stats_mgr.save_stats(palette_limit, width, height, total_frames, fast_size, q_med_size, 1.0)
                         with open(input_path, "wb") as f:
@@ -1884,6 +1897,8 @@ def balanced_compress_gif(input_path, gif_cfg=CONFIG.gif):
                         )
                         return
 
+            # ⚠️ FINAL CHECK: The only acceptable outcome is strictly within [13.5–14.99] MB.
+            # in_target enforces this IMMUTABLE contract. If size is out of bounds, loop continues.
             if in_preferred_corridor or in_target:
                 stats_mgr.save_stats(palette_limit, width, height, total_frames, fast_size, med_size, scale)
                 with open(input_path, "wb") as f:
