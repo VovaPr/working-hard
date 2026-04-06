@@ -58,6 +58,7 @@ class GIFConfig:
     probe_skip_overflow_margin: float = 1.08
     probe_skip_underflow_margin_mb: float = 0.10
     process_pool_tasks_per_worker: int = 4
+    fast_probe_hard_skip_ratio: float = 1.30
     stats_source_bias_extra: float = 1.08  # Extra conservative bias when predicting from stats source
     webp_animated_max_iterations: int = 12
     webp_static_max_iterations: int = 12
@@ -79,7 +80,7 @@ class GIFConfig:
 
 @dataclass(frozen=True)
 class AppConfig:
-    version: str = "Compressor v8.59.8"
+    version: str = "Compressor v8.59.9"
     root_folder_path: str = r"C:\other\lab\pic"
     stats_file: str = field(default_factory=lambda: os.path.join(os.path.dirname(__file__), "CompressorStats.JSON"))
     stats_soft_limit_mb: float = 50.0
@@ -1558,6 +1559,31 @@ def balanced_compress_gif(input_path, gif_cfg=CONFIG.gif):
                 predicted_medcut *= gif_cfg.stats_source_bias_extra
                 predicted_medcut = _clamp_prediction(predicted_medcut, fast_size)
 
+            # Hard early skip: if first FASTOCTREE is far above target,
+            # skip sample-probe and jump down immediately.
+            if (
+                iteration == 0
+                and source == "formula (conservative)"
+                and fast_size > gif_cfg.target_max_mb * gif_cfg.fast_probe_hard_skip_ratio
+            ):
+                high_scale = scale
+                suggested_scale = scale * (target_mid / fast_size) ** 0.5 if fast_size > 0 else scale
+                suggested_scale *= 0.92
+                max_skip_step_ratio = 0.55
+                max_skip_step = scale * max_skip_step_ratio
+                if abs(suggested_scale - scale) > max_skip_step:
+                    direction = 1 if suggested_scale > scale else -1
+                    suggested_scale = scale + direction * max_skip_step
+                if not (low_scale < suggested_scale < high_scale):
+                    suggested_scale = (low_scale + high_scale) / 2
+                print(
+                    f"{VERSION} | Early hard-skip on iter 1: FASTOCTREE={fast_size:.2f} MB "
+                    f"(>{gif_cfg.fast_probe_hard_skip_ratio:.2f}x target_max) -> next scale={suggested_scale:.3f}"
+                )
+                scale = suggested_scale
+                sample_probe_done = True
+                continue
+
             if (
                 gif_cfg.sample_probe_enabled
                 and source == "formula (conservative)"
@@ -2057,3 +2083,4 @@ if __name__ == "__main__":
     end_time = time.time()
     elapsed = end_time - start_time
     print(f"Total execution time: {elapsed:.2f} sec. Current time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+
