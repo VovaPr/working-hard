@@ -58,6 +58,7 @@ class GIFConfig:
     probe_skip_overflow_margin: float = 1.08
     probe_skip_underflow_margin_mb: float = 0.10
     process_pool_tasks_per_worker: int = 4
+    stats_source_bias_extra: float = 1.08  # Extra conservative bias when predicting from stats source
     webp_animated_max_iterations: int = 12
     webp_static_max_iterations: int = 12
     webp_static_method_default: int = 4
@@ -78,7 +79,7 @@ class GIFConfig:
 
 @dataclass(frozen=True)
 class AppConfig:
-    version: str = "Compressor v8.59.7"
+    version: str = "Compressor v8.59.8"
     root_folder_path: str = r"C:\other\lab\pic"
     stats_file: str = field(default_factory=lambda: os.path.join(os.path.dirname(__file__), "CompressorStats.JSON"))
     stats_soft_limit_mb: float = 50.0
@@ -1550,6 +1551,12 @@ def balanced_compress_gif(input_path, gif_cfg=CONFIG.gif):
                 bias_factor,
             )
             predicted_medcut = _clamp_prediction(predicted_medcut, fast_size)
+            
+            # ⚠️ Conservative bias: stats-based predictions tend to be optimistic.
+            # Apply extra safety margin to avoid exceeding target on overcorrection.
+            if source == "stats":
+                predicted_medcut *= gif_cfg.stats_source_bias_extra
+                predicted_medcut = _clamp_prediction(predicted_medcut, fast_size)
 
             if (
                 gif_cfg.sample_probe_enabled
@@ -1701,6 +1708,10 @@ def balanced_compress_gif(input_path, gif_cfg=CONFIG.gif):
                         bias_factor,
                     )
                     predicted_medcut = _clamp_prediction(predicted_medcut, fast_size)
+                    # ⚠️ Apply conservative bias to stats predictions.
+                    if source == "stats":
+                        predicted_medcut *= gif_cfg.stats_source_bias_extra
+                        predicted_medcut = _clamp_prediction(predicted_medcut, fast_size)
                     print(
                         f"{VERSION} | -> Updated predicted MEDIANCUT={predicted_medcut:.2f} MB "
                         f"| scale={scale:.3f}"
