@@ -80,7 +80,7 @@ class GIFConfig:
 
 @dataclass(frozen=True)
 class AppConfig:
-    version: str = "Compressor v8.59.11"
+    version: str = "Compressor v8.59.12"
     root_folder_path: str = r"C:\other\lab\pic"
     stats_file: str = field(default_factory=lambda: os.path.join(os.path.dirname(__file__), "CompressorStats.JSON"))
     stats_soft_limit_mb: float = 50.0
@@ -1570,14 +1570,28 @@ def balanced_compress_gif(input_path, gif_cfg=CONFIG.gif):
 
             # Hard early skip: if first FASTOCTREE is far above target,
             # skip sample-probe and jump down immediately.
+            _is_neighbor_source = source.startswith("neighbor stats")
             if (
                 iteration == 0
-                and source == "formula (conservative)"
+                and (source == "formula (conservative)" or _is_neighbor_source)
                 and fast_size > gif_cfg.target_max_mb * gif_cfg.fast_probe_hard_skip_ratio
             ):
                 high_scale = scale
-                suggested_scale = scale * (target_mid / fast_size) ** 0.5 if fast_size > 0 else scale
-                suggested_scale *= 0.92
+                if _is_neighbor_source:
+                    # Use stored delta to aim for the FASTOCTREE level that will yield MEDIANCUT in target.
+                    # This is far more accurate than the blind (target_mid/fast_size)*0.92 formula.
+                    _delta_for_skip = stats_mgr.find_delta(palette_limit, width, height, total_frames)
+                    if _delta_for_skip is not None:
+                        _target_fast = target_mid - _delta_for_skip * bias_factor
+                        if _target_fast > 0 and fast_size > 0:
+                            suggested_scale = scale * (_target_fast / fast_size) ** 0.5
+                        else:
+                            suggested_scale = scale * (target_mid / fast_size) ** 0.5 * 0.92
+                    else:
+                        suggested_scale = scale * (target_mid / fast_size) ** 0.5 * 0.92 if fast_size > 0 else scale
+                else:
+                    suggested_scale = scale * (target_mid / fast_size) ** 0.5 if fast_size > 0 else scale
+                    suggested_scale *= 0.92
                 max_skip_step_ratio = 0.55
                 max_skip_step = scale * max_skip_step_ratio
                 if abs(suggested_scale - scale) > max_skip_step:
