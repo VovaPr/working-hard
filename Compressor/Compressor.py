@@ -80,7 +80,7 @@ class GIFConfig:
 
 @dataclass(frozen=True)
 class AppConfig:
-    version: str = "Compressor v8.59.10"
+    version: str = "Compressor v8.59.11"
     root_folder_path: str = r"C:\other\lab\pic"
     stats_file: str = field(default_factory=lambda: os.path.join(os.path.dirname(__file__), "CompressorStats.JSON"))
     stats_soft_limit_mb: float = 50.0
@@ -1379,6 +1379,14 @@ def _choose_initial_scale(stats_mgr, palette_limit, width, height, total_frames,
         )
 
         safe_neighbor_scale = neighbor_scale * safety
+
+        # Size-ratio floor: prevent over-compressing files already near target.
+        # Neighbor stats are calibrated for their own init_size; if our file is close
+        # to target but neighbors were large, their scale is too aggressive for us.
+        size_ratio_floor = (target_mid / init_size) ** 0.5 * 0.99
+        if size_ratio_floor > safe_neighbor_scale:
+            safe_neighbor_scale = size_ratio_floor
+
         return (
             safe_neighbor_scale,
             f"neighbor stats (safe x{safety:.3f}, n={neighbor_count}, std={neighbor_std:.3f})",
