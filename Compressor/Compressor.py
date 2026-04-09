@@ -80,7 +80,7 @@ class GIFConfig:
 
 @dataclass(frozen=True)
 class AppConfig:
-    version: str = "Compressor v8.59.9"
+    version: str = "Compressor v8.59.10"
     root_folder_path: str = r"C:\other\lab\pic"
     stats_file: str = field(default_factory=lambda: os.path.join(os.path.dirname(__file__), "CompressorStats.JSON"))
     stats_soft_limit_mb: float = 50.0
@@ -1449,8 +1449,9 @@ def balanced_compress_gif(input_path, gif_cfg=CONFIG.gif):
             frames_raw.append(frame.convert("RGB"))
             durations.append(frame.info.get("duration", 100))
 
-    # Strictly use only half the CPUs: MEDIANCUT is memory-intensive per frame,
-    # using all cores causes RAM pressure and can slow down the whole system.
+    # ⚠️ DO NOT CHANGE workers — MEDIANCUT is memory-intensive per frame;
+    # using more than half CPUs causes RAM pressure and slows down the whole system.
+    # DO NOT add dynamic scaling, boost, or any frame-count-based adjustments here.
     workers = max(1, (os.cpu_count() or 4) // 2)
     print(f"{VERSION} | Using {workers} workers for {total_frames} frames")
     debug_log(f"log_level={LOG_LEVEL} | max_safe_iterations={gif_cfg.max_safe_iterations}")
