@@ -667,15 +667,15 @@ def _compress_animated_webp(
             print(f"{local_version} | Finished in {elapsed:.2f} sec")
             return
 
-            elapsed = time.time() - started_at
-            if elapsed >= gif_cfg.webp_file_max_seconds:
-                print(
-                    f"{local_version} | ⚠ WEBP animated timeout {elapsed:.2f} sec; "
-                    f"file kept unchanged"
-                )
-                return
+        elapsed = time.time() - started_at
+        if elapsed >= gif_cfg.webp_file_max_seconds:
+            print(
+                f"{local_version} | ⚠ WEBP animated timeout {elapsed:.2f} sec; "
+                f"file kept unchanged"
+            )
+            return
 
-            if effective_size < target_min_bytes:
+        if effective_size < target_min_bytes:
             under_target_q = quality if under_target_q is None else max(under_target_q, quality)
         elif effective_size > target_max_bytes:
             over_target_q = quality if over_target_q is None else min(over_target_q, quality)
