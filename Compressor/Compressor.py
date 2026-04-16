@@ -67,6 +67,9 @@ class GIFConfig:
     webp_animated_method_fast: int = 0
     webp_animated_direct_final_fast_enabled: bool = True
     webp_animated_direct_final_fast_method: int = 1
+    # Use fast direct-final method only if known method=2 result has enough headroom.
+    # If fast method is likely to inflate size beyond target, skip it and use method=2 directly.
+    webp_animated_direct_final_fast_max_growth: float = 1.10
     webp_animated_probe_enabled: bool = True
     webp_animated_direct_final_enabled: bool = True
     webp_animated_direct_final_init_tolerance_mb: float = 0.35
@@ -88,7 +91,7 @@ class GIFConfig:
 
 @dataclass(frozen=True)
 class AppConfig:
-    version: str = "Compressor v8.59.19"
+    version: str = "Compressor v8.59.20"
     root_folder_path: str = r"C:\other\lab\pic"
     stats_file: str = field(default_factory=lambda: os.path.join(os.path.dirname(__file__), "CompressorStats.JSON"))
     stats_soft_limit_mb: float = 50.0
@@ -508,10 +511,12 @@ def _compress_animated_webp(
             gif_cfg,
         )
 
+    known_result_size_mb = None
     if startup_plan is not None:
         quality = startup_plan["quality"]
         source = startup_plan["source"]
         direct_final_from_stats = startup_plan["direct_final"]
+        known_result_size_mb = startup_plan.get("result_size_mb")
     elif stats_mgr_webp and width and height and frame_count:
         # Cold-start fallback: estimate startup quality from size ratio instead of hardcoded q=95.
         ratio = (target_mid_bytes / init_size) ** 0.5 if init_size > 0 else 1.0
@@ -533,22 +538,28 @@ def _compress_animated_webp(
     webp_method = max(0, min(6, gif_cfg.webp_animated_method_default))
     webp_method_fast = max(0, min(6, gif_cfg.webp_animated_method_fast))
     webp_method_direct_fast = max(0, min(6, gif_cfg.webp_animated_direct_final_fast_method))
+    direct_fast_growth = max(1.0, float(gif_cfg.webp_animated_direct_final_fast_max_growth))
     probe_enabled = bool(gif_cfg.webp_animated_probe_enabled and webp_method_fast != webp_method)
     verify_margin_ratio = max(0.0, min(0.20, gif_cfg.webp_animated_probe_verify_margin_ratio))
     # Seed with realistic method=0→method=2 ratio so quality steps are not over-aggressive.
     method_ratio = max(0.5, min(1.0, gif_cfg.webp_animated_probe_initial_method_ratio))
     method_ratio_samples = 0
 
+    can_use_direct_fast = False
+    if direct_final_from_stats and gif_cfg.webp_animated_direct_final_fast_enabled and known_result_size_mb is not None:
+        can_use_direct_fast = (known_result_size_mb * direct_fast_growth) <= gif_cfg.target_max_mb
+
     if direct_final_from_stats:
-        direct_mode = (
-            webp_method_direct_fast
-            if gif_cfg.webp_animated_direct_final_fast_enabled
-            else webp_method
-        )
+        direct_mode = webp_method_direct_fast if can_use_direct_fast else webp_method
         print(
             f"{local_version} | WEBP animated direct-final enabled | "
             f"known profile -> method={direct_mode}"
         )
+        if gif_cfg.webp_animated_direct_final_fast_enabled and not can_use_direct_fast:
+            print(
+                f"{local_version} | WEBP direct-fast skipped | "
+                f"known={known_result_size_mb:.2f} MB, growth_limit={direct_fast_growth:.2f}x"
+            )
     if probe_enabled:
         print(
             f"{local_version} | WEBP animated probe enabled | "
@@ -563,7 +574,7 @@ def _compress_animated_webp(
         bracket_known = under_target_q is not None and over_target_q is not None
         direct_final_this_step = bool(direct_final_from_stats and step == 1)
         if direct_final_this_step:
-            method_in_use = webp_method_direct_fast if gif_cfg.webp_animated_direct_final_fast_enabled else webp_method
+            method_in_use = webp_method_direct_fast if can_use_direct_fast else webp_method
         else:
             method_in_use = webp_method_fast if probe_enabled else webp_method
         print(
@@ -1079,6 +1090,7 @@ class AnimatedWebPStatsManager:
                 {
                     "quality": entry["quality"],
                     "method": entry.get("method", gif_cfg.webp_animated_method_default),
+                    "result_size_mb": result_size,
                     "init_diff": init_diff,
                     "mid_diff": mid_diff,
                     "timestamp": entry.get("timestamp", 0),
@@ -1105,6 +1117,7 @@ class AnimatedWebPStatsManager:
         return {
             "quality": best["quality"],
             "method": best["method"],
+            "result_size_mb": best.get("result_size_mb"),
             "direct_final": best["direct_final"],
             "source": f"{source_prefix} ({source_suffix}, records={self.stats_count()})",
         }
