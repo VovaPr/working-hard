@@ -86,7 +86,7 @@ class GIFConfig:
 
 @dataclass(frozen=True)
 class AppConfig:
-    version: str = "Compressor v8.59.16"
+    version: str = "Compressor v8.59.17"
     root_folder_path: str = r"C:\other\lab\pic"
     stats_file: str = field(default_factory=lambda: os.path.join(os.path.dirname(__file__), "CompressorStats.JSON"))
     stats_soft_limit_mb: float = 50.0
@@ -832,10 +832,15 @@ def compress_animated_webp_until_under_target(path, gif_cfg=CONFIG.gif):
 
             frames = []
             durations = []
-            has_alpha = "A" in (img.mode or "")
             for frame in ImageSequence.Iterator(img):
-                mode = "RGBA" if has_alpha else "RGB"
-                frames.append(frame.convert(mode))
+                # Avoid expensive convert() when frame is already in a WEBP-friendly mode.
+                # copy() is still needed because ImageSequence frames are lazy-backed by source image.
+                if frame.mode in ("RGB", "RGBA"):
+                    prepared = frame.copy()
+                else:
+                    has_alpha_frame = "A" in frame.getbands()
+                    prepared = frame.convert("RGBA" if has_alpha_frame else "RGB")
+                frames.append(prepared)
                 durations.append(frame.info.get("duration", 100))
 
             stats_mgr_webp = AnimatedWebPStatsManager(STATS_FILE)
