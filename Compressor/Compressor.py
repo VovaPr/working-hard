@@ -75,7 +75,9 @@ class GIFConfig:
     # Seeding with a realistic value prevents over-aggressive quality drops on the first steps.
     webp_animated_probe_initial_method_ratio: float = 0.75
     webp_animated_slow_step_sec: float = 20.0
-    webp_file_max_seconds: float = 90.0
+    # Animated WEBP often needs 3-4 expensive passes (probe + verify).
+    # 90s is too tight for high-frame clips and causes premature aborts.
+    webp_file_max_seconds: float = 150.0
     webp_animated_near_band_ratio: float = 0.10
     webp_animated_nudge_small_ratio: float = 0.04
     webp_animated_nudge_small_step: int = 1
@@ -84,7 +86,7 @@ class GIFConfig:
 
 @dataclass(frozen=True)
 class AppConfig:
-    version: str = "Compressor v8.59.14"
+    version: str = "Compressor v8.59.15"
     root_folder_path: str = r"C:\other\lab\pic"
     stats_file: str = field(default_factory=lambda: os.path.join(os.path.dirname(__file__), "CompressorStats.JSON"))
     stats_soft_limit_mb: float = 50.0
@@ -683,7 +685,7 @@ def _compress_animated_webp(
         # Near-target miss: nudge quality by 1-2 points to avoid overshooting and extra full re-encodes.
         near_mid_ratio = abs(effective_size - target_mid_bytes) / target_mid_bytes if target_mid_bytes > 0 else 0.0
         has_bracket = under_target_q is not None and over_target_q is not None
-        if not has_bracket and near_mid_ratio <= gif_cfg.webp_animated_near_band_ratio:
+        if near_mid_ratio <= gif_cfg.webp_animated_near_band_ratio:
             miss_ratio = (
                 (target_min_bytes - effective_size) / target_min_bytes
                 if effective_size < target_min_bytes and target_min_bytes > 0
