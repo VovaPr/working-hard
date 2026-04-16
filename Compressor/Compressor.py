@@ -86,7 +86,7 @@ class GIFConfig:
 
 @dataclass(frozen=True)
 class AppConfig:
-    version: str = "Compressor v8.59.17"
+    version: str = "Compressor v8.59.18"
     root_folder_path: str = r"C:\other\lab\pic"
     stats_file: str = field(default_factory=lambda: os.path.join(os.path.dirname(__file__), "CompressorStats.JSON"))
     stats_soft_limit_mb: float = 50.0
@@ -896,25 +896,89 @@ class AnimatedWebPStatsManager:
                         self.webp_stats = data.get("webp_animated_stats", [])
                     else:
                         self.webp_stats = []
+                    self.webp_stats = self._merge_duplicate_webp_stats(self.webp_stats)
             except Exception:
                 self.webp_stats = []
         else:
             self.webp_stats = []
 
+    def _merge_duplicate_webp_stats(self, entries):
+        """Merge repeated successful runs for the same WEBP profile into a single record."""
+        merged = {}
+        for entry in entries:
+            key = (
+                entry.get("width"),
+                entry.get("height"),
+                entry.get("frames"),
+                entry.get("init_size_mb"),
+                entry.get("quality"),
+                entry.get("method"),
+            )
+            cnt = int(entry.get("count", 1) or 1)
+            if key not in merged:
+                base = entry.copy()
+                base["count"] = cnt
+                merged[key] = base
+                continue
+
+            cur = merged[key]
+            cur_cnt = int(cur.get("count", 1) or 1)
+            total_cnt = cur_cnt + cnt
+
+            cur_result = float(cur.get("result_size_mb", 0.0))
+            new_result = float(entry.get("result_size_mb", cur_result))
+            cur_encode = float(cur.get("encode_sec", 0.0))
+            new_encode = float(entry.get("encode_sec", cur_encode))
+
+            cur["result_size_mb"] = round((cur_result * cur_cnt + new_result * cnt) / max(total_cnt, 1), 2)
+            cur["encode_sec"] = round((cur_encode * cur_cnt + new_encode * cnt) / max(total_cnt, 1), 2)
+            cur["count"] = total_cnt
+            cur["timestamp"] = max(float(cur.get("timestamp", 0)), float(entry.get("timestamp", 0)))
+
+        return sorted(merged.values(), key=lambda e: e.get("timestamp", 0))
+
     def save_step(self, width, height, frames, init_size_mb, quality, method, result_size_mb, encode_sec):
         """Record one compression step attempt."""
-        entry = {
-            "width": width,
-            "height": height,
-            "frames": frames,
-            "init_size_mb": round(init_size_mb, 2),
-            "quality": quality,
-            "method": method,
-            "result_size_mb": round(result_size_mb, 2),
-            "encode_sec": round(encode_sec, 2),
-            "timestamp": time.time(),
-        }
-        self.webp_stats.append(entry)
+        init_size_mb = round(init_size_mb, 2)
+        result_size_mb = round(result_size_mb, 2)
+        encode_sec = round(encode_sec, 2)
+        now_ts = time.time()
+
+        merged = False
+        for entry in self.webp_stats:
+            if (
+                entry.get("width") == width
+                and entry.get("height") == height
+                and entry.get("frames") == frames
+                and entry.get("init_size_mb") == init_size_mb
+                and entry.get("quality") == quality
+                and entry.get("method") == method
+            ):
+                cnt = int(entry.get("count", 1) or 1)
+                entry["result_size_mb"] = round((float(entry.get("result_size_mb", result_size_mb)) * cnt + result_size_mb) / (cnt + 1), 2)
+                entry["encode_sec"] = round((float(entry.get("encode_sec", encode_sec)) * cnt + encode_sec) / (cnt + 1), 2)
+                entry["count"] = cnt + 1
+                entry["timestamp"] = now_ts
+                merged = True
+                break
+
+        if not merged:
+            self.webp_stats.append(
+                {
+                    "width": width,
+                    "height": height,
+                    "frames": frames,
+                    "init_size_mb": init_size_mb,
+                    "quality": quality,
+                    "method": method,
+                    "result_size_mb": result_size_mb,
+                    "encode_sec": encode_sec,
+                    "timestamp": now_ts,
+                    "count": 1,
+                }
+            )
+
+        self.webp_stats = self._merge_duplicate_webp_stats(self.webp_stats)
         self._persist_webp_stats()
 
     def _persist_webp_stats(self):

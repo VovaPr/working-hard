@@ -1756,6 +1756,17 @@
       "result_size_mb": 13.77,
       "encode_sec": 46.18,
       "timestamp": 1776354493.2942338
+    },
+    {
+      "width": 720,
+      "height": 1280,
+      "frames": 260,
+      "init_size_mb": 23.09,
+      "quality": 77,
+      "method": 2,
+      "result_size_mb": 13.77,
+      "encode_sec": 40.35,
+      "timestamp": 1776354955.578657
     }
   ]
 }
