@@ -86,7 +86,7 @@ class GIFConfig:
 
 @dataclass(frozen=True)
 class AppConfig:
-    version: str = "Compressor v8.59.15"
+    version: str = "Compressor v8.59.16"
     root_folder_path: str = r"C:\other\lab\pic"
     stats_file: str = field(default_factory=lambda: os.path.join(os.path.dirname(__file__), "CompressorStats.JSON"))
     stats_soft_limit_mb: float = 50.0
@@ -511,12 +511,18 @@ def _compress_animated_webp(
         source = startup_plan["source"]
         direct_final_from_stats = startup_plan["direct_final"]
     elif stats_mgr_webp and width and height and frame_count:
-        quality = 95
-        source = f"default (no webp match, records={stats_mgr_webp.stats_count()})"
+        # Cold-start fallback: estimate startup quality from size ratio instead of hardcoded q=95.
+        ratio = (target_mid_bytes / init_size) ** 0.5 if init_size > 0 else 1.0
+        quality = max(60, min(95, int(95 * ratio * 1.02)))
+        source = (
+            f"default (no webp match, records={stats_mgr_webp.stats_count()}, "
+            f"ratio-seeded q={quality})"
+        )
         direct_final_from_stats = False
     else:
-        quality = 95
-        source = "default (stats unavailable)"
+        ratio = (target_mid_bytes / init_size) ** 0.5 if init_size > 0 else 1.0
+        quality = max(60, min(95, int(95 * ratio * 1.02)))
+        source = f"default (stats unavailable, ratio-seeded q={quality})"
         direct_final_from_stats = False
 
     print(f"{local_version} | Prediction source: {source} -> initial quality={quality}")
@@ -526,7 +532,6 @@ def _compress_animated_webp(
     webp_method_fast = max(0, min(6, gif_cfg.webp_animated_method_fast))
     probe_enabled = bool(gif_cfg.webp_animated_probe_enabled and webp_method_fast != webp_method)
     verify_margin_ratio = max(0.0, min(0.20, gif_cfg.webp_animated_probe_verify_margin_ratio))
-    recalibrate_every = max(1, int(gif_cfg.webp_animated_probe_recalibrate_every))
     # Seed with realistic method=0→method=2 ratio so quality steps are not over-aggressive.
     method_ratio = max(0.5, min(1.0, gif_cfg.webp_animated_probe_initial_method_ratio))
     method_ratio_samples = 0
@@ -589,7 +594,6 @@ def _compress_animated_webp(
             should_verify_final = (
                 target_min_bytes <= predicted_final <= target_max_bytes
                 or lower_verify <= predicted_final <= upper_verify
-                or step % recalibrate_every == 0
                 or (bracket_known and (over_target_q - under_target_q) <= 2)
                 or step == gif_cfg.webp_animated_max_iterations
             )

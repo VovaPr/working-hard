@@ -1733,5 +1733,29 @@
       "scale": 0.19302310912152323,
       "timestamp": 1776331376.9361134
     }
+  ],
+  "webp_animated_stats": [
+    {
+      "width": 720,
+      "height": 1280,
+      "frames": 260,
+      "init_size_mb": 23.09,
+      "quality": 77,
+      "method": 2,
+      "result_size_mb": 13.77,
+      "encode_sec": 75.19,
+      "timestamp": 1776354365.7302473
+    },
+    {
+      "width": 720,
+      "height": 1280,
+      "frames": 260,
+      "init_size_mb": 23.09,
+      "quality": 77,
+      "method": 2,
+      "result_size_mb": 13.77,
+      "encode_sec": 46.18,
+      "timestamp": 1776354493.2942338
+    }
   ]
 }
