@@ -70,6 +70,10 @@ class GIFConfig:
     webp_animated_direct_final_init_tolerance_mb: float = 0.35
     webp_animated_probe_verify_margin_ratio: float = 0.06
     webp_animated_probe_recalibrate_every: int = 3
+    # Initial estimate of how much smaller method=2 output is vs method=0 (fast probe).
+    # method=2 typically produces ~20-30% smaller files than method=0.
+    # Seeding with a realistic value prevents over-aggressive quality drops on the first steps.
+    webp_animated_probe_initial_method_ratio: float = 0.75
     webp_animated_slow_step_sec: float = 20.0
     webp_file_max_seconds: float = 90.0
     webp_animated_near_band_ratio: float = 0.10
@@ -80,7 +84,7 @@ class GIFConfig:
 
 @dataclass(frozen=True)
 class AppConfig:
-    version: str = "Compressor v8.59.13"
+    version: str = "Compressor v8.59.14"
     root_folder_path: str = r"C:\other\lab\pic"
     stats_file: str = field(default_factory=lambda: os.path.join(os.path.dirname(__file__), "CompressorStats.JSON"))
     stats_soft_limit_mb: float = 50.0
@@ -521,7 +525,8 @@ def _compress_animated_webp(
     probe_enabled = bool(gif_cfg.webp_animated_probe_enabled and webp_method_fast != webp_method)
     verify_margin_ratio = max(0.0, min(0.20, gif_cfg.webp_animated_probe_verify_margin_ratio))
     recalibrate_every = max(1, int(gif_cfg.webp_animated_probe_recalibrate_every))
-    method_ratio = 1.0
+    # Seed with realistic method=0→method=2 ratio so quality steps are not over-aggressive.
+    method_ratio = max(0.5, min(1.0, gif_cfg.webp_animated_probe_initial_method_ratio))
     method_ratio_samples = 0
 
     if direct_final_from_stats:
@@ -634,14 +639,8 @@ def _compress_animated_webp(
             f"Size={effective_size/1024:.2f} KB | encode={step_encode_elapsed:.2f} sec"
         )
 
-        elapsed = time.time() - started_at
-        if elapsed >= gif_cfg.webp_file_max_seconds:
-            print(
-                f"{local_version} | ⚠ WEBP animated timeout {elapsed:.2f} sec; "
-                f"file kept unchanged"
-            )
-            return
-
+        # Success check MUST come before timeout: an in-target result must always be saved
+        # regardless of how long the encode took. Timeout only discards out-of-range results.
         if target_min_bytes <= effective_size <= target_max_bytes:
             if stats_mgr_webp and width and height and frame_count:
                 stats_mgr_webp.save_step(
@@ -668,7 +667,15 @@ def _compress_animated_webp(
             print(f"{local_version} | Finished in {elapsed:.2f} sec")
             return
 
-        if effective_size < target_min_bytes:
+            elapsed = time.time() - started_at
+            if elapsed >= gif_cfg.webp_file_max_seconds:
+                print(
+                    f"{local_version} | ⚠ WEBP animated timeout {elapsed:.2f} sec; "
+                    f"file kept unchanged"
+                )
+                return
+
+            if effective_size < target_min_bytes:
             under_target_q = quality if under_target_q is None else max(under_target_q, quality)
         elif effective_size > target_max_bytes:
             over_target_q = quality if over_target_q is None else min(over_target_q, quality)
