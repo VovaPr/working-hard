@@ -80,7 +80,7 @@ class GIFConfig:
 
 @dataclass(frozen=True)
 class AppConfig:
-    version: str = "Compressor v8.59.12"
+    version: str = "Compressor v8.59.13"
     root_folder_path: str = r"C:\other\lab\pic"
     stats_file: str = field(default_factory=lambda: os.path.join(os.path.dirname(__file__), "CompressorStats.JSON"))
     stats_soft_limit_mb: float = 50.0
@@ -1480,7 +1480,8 @@ def balanced_compress_gif(input_path, gif_cfg=CONFIG.gif):
         gif_cfg,
     )
 
-    print(f"{VERSION} | Prediction source: {source} -> initial scale={scale:.3f}")
+    print(f"{VERSION} | Prediction source: {source}")
+    print(f"{VERSION} | -> initial scale={scale:.3f}")
 
     low_scale = 0.01
     high_scale = 4.0
@@ -1601,8 +1602,9 @@ def balanced_compress_gif(input_path, gif_cfg=CONFIG.gif):
                     suggested_scale = (low_scale + high_scale) / 2
                 print(
                     f"{VERSION} | Early hard-skip on iter 1: FASTOCTREE={fast_size:.2f} MB "
-                    f"(>{gif_cfg.fast_probe_hard_skip_ratio:.2f}x target_max) -> next scale={suggested_scale:.3f}"
+                    f"(>{gif_cfg.fast_probe_hard_skip_ratio:.2f}x target_max)"
                 )
+                print(f"{VERSION} | -> next scale={suggested_scale:.3f}")
                 scale = suggested_scale
                 sample_probe_done = True
                 continue
@@ -1635,7 +1637,8 @@ def balanced_compress_gif(input_path, gif_cfg=CONFIG.gif):
                         f"| finished in {probe_elapsed:.2f} sec"
                     )
 
-            print(f"{VERSION} | -> Predicted MEDIANCUT={predicted_medcut:.2f} MB | scale={scale:.3f} (source: {source})")
+            print(f"{VERSION} | -> Predicted MEDIANCUT={predicted_medcut:.2f} MB | scale={scale:.3f}")
+            print(f"{VERSION} | -> source: {source}")
 
             source_is_neighbor = source.startswith("neighbor stats")
 
@@ -1689,7 +1692,8 @@ def balanced_compress_gif(input_path, gif_cfg=CONFIG.gif):
                     suggested_scale = (low_scale + high_scale) / 2
 
                 reason = "predicted too large" if (can_skip_first_med or can_skip_probe_overflow or can_skip_formula_extra) else "predicted too small"
-                print(f"{VERSION} | Skipping MEDIANCUT on iter {iteration+1} ({reason}) -> next scale={suggested_scale:.3f}")
+                print(f"{VERSION} | Skipping MEDIANCUT on iter {iteration+1} ({reason})")
+                print(f"{VERSION} | -> next scale={suggested_scale:.3f}")
                 scale = suggested_scale
                 continue
 
@@ -1999,7 +2003,8 @@ def balanced_compress_gif(input_path, gif_cfg=CONFIG.gif):
                 target_mid=target_mid,
                 max_step_ratio=gif_cfg.max_scale_step_ratio,
                 )
-            print(f"{VERSION} | Next scale={new_scale:.3f} (low={low_scale:.3f}, high={high_scale:.3f})")
+            print(f"{VERSION} | Next scale={new_scale:.3f}")
+            print(f"{VERSION} | -> bracket: low={low_scale:.3f}, high={high_scale:.3f}")
             scale = new_scale
 
     print(f"{VERSION} | Failed to converge after {gif_cfg.max_safe_iterations} iterations")
