@@ -65,6 +65,8 @@ class GIFConfig:
     webp_static_method_default: int = 4
     webp_animated_method_default: int = 2
     webp_animated_method_fast: int = 0
+    webp_animated_direct_final_fast_enabled: bool = True
+    webp_animated_direct_final_fast_method: int = 1
     webp_animated_probe_enabled: bool = True
     webp_animated_direct_final_enabled: bool = True
     webp_animated_direct_final_init_tolerance_mb: float = 0.35
@@ -86,7 +88,7 @@ class GIFConfig:
 
 @dataclass(frozen=True)
 class AppConfig:
-    version: str = "Compressor v8.59.18"
+    version: str = "Compressor v8.59.19"
     root_folder_path: str = r"C:\other\lab\pic"
     stats_file: str = field(default_factory=lambda: os.path.join(os.path.dirname(__file__), "CompressorStats.JSON"))
     stats_soft_limit_mb: float = 50.0
@@ -530,6 +532,7 @@ def _compress_animated_webp(
     resize_count = 0
     webp_method = max(0, min(6, gif_cfg.webp_animated_method_default))
     webp_method_fast = max(0, min(6, gif_cfg.webp_animated_method_fast))
+    webp_method_direct_fast = max(0, min(6, gif_cfg.webp_animated_direct_final_fast_method))
     probe_enabled = bool(gif_cfg.webp_animated_probe_enabled and webp_method_fast != webp_method)
     verify_margin_ratio = max(0.0, min(0.20, gif_cfg.webp_animated_probe_verify_margin_ratio))
     # Seed with realistic method=0→method=2 ratio so quality steps are not over-aggressive.
@@ -537,9 +540,14 @@ def _compress_animated_webp(
     method_ratio_samples = 0
 
     if direct_final_from_stats:
+        direct_mode = (
+            webp_method_direct_fast
+            if gif_cfg.webp_animated_direct_final_fast_enabled
+            else webp_method
+        )
         print(
             f"{local_version} | WEBP animated direct-final enabled | "
-            f"known profile -> method={webp_method}"
+            f"known profile -> method={direct_mode}"
         )
     if probe_enabled:
         print(
@@ -554,7 +562,10 @@ def _compress_animated_webp(
         quality = max(1, min(100, int(quality)))
         bracket_known = under_target_q is not None and over_target_q is not None
         direct_final_this_step = bool(direct_final_from_stats and step == 1)
-        method_in_use = webp_method if direct_final_this_step else webp_method_fast if probe_enabled else webp_method
+        if direct_final_this_step:
+            method_in_use = webp_method_direct_fast if gif_cfg.webp_animated_direct_final_fast_enabled else webp_method
+        else:
+            method_in_use = webp_method_fast if probe_enabled else webp_method
         print(
             f"{local_version} | WEBP animated step {step} | "
             f"Encoding... (q={quality}, method={method_in_use})"
@@ -584,8 +595,42 @@ def _compress_animated_webp(
         effective_method = method_in_use
         step_encode_elapsed = probe_encode_elapsed
 
+        if direct_final_this_step and method_in_use != webp_method:
+            if target_min_bytes <= probe_size <= target_max_bytes:
+                print(
+                    f"{local_version} | WEBP direct-fast accepted | "
+                    f"Size={probe_size/1024:.2f} KB | method={method_in_use}"
+                )
+            else:
+                print(
+                    f"{local_version} | WEBP direct-fast miss | "
+                    f"Size={probe_size/1024:.2f} KB -> fallback method={webp_method}"
+                )
+                fallback_start = time.time()
+                try:
+                    final_buf = _save_webp_frames(frames, durations, quality, method=webp_method)
+                    final_method = webp_method
+                except ValueError as e:
+                    fallback_method = 0
+                    print(
+                        f"{local_version} | WEBP direct-fast fallback error: {e} "
+                        f"| retry with method={fallback_method}"
+                    )
+                    final_buf = _save_webp_frames(frames, durations, quality, method=fallback_method)
+                    final_method = fallback_method
+                fallback_elapsed = time.time() - fallback_start
+                final_size = len(final_buf.getvalue())
+                effective_size = final_size
+                effective_buf = final_buf
+                effective_method = final_method
+                step_encode_elapsed += fallback_elapsed
+                print(
+                    f"{local_version} | WEBP direct-fast fallback result | "
+                    f"Size={final_size/1024:.2f} KB | method={final_method} | fallback={fallback_elapsed:.2f} sec"
+                )
+
         should_verify_final = False
-        if probe_enabled and method_in_use != webp_method:
+        if probe_enabled and method_in_use != webp_method and not direct_final_this_step:
             predicted_final = max(1, int(probe_size * method_ratio))
             effective_size = predicted_final
             lower_verify = int(target_min_bytes * (1.0 - verify_margin_ratio))
