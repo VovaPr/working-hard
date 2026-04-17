@@ -100,7 +100,7 @@ class GIFConfig:
 
 @dataclass(frozen=True)
 class AppConfig:
-    version: str = "Compressor v8.59.31"
+    version: str = "Compressor v8.59.32"
     root_folder_path: str = r"C:\other\lab\pic"
     stats_file: str = field(default_factory=lambda: os.path.join(os.path.dirname(__file__), "CompressorStats.JSON"))
     stats_soft_limit_mb: float = 50.0
@@ -741,9 +741,15 @@ def _compress_animated_webp(
             f"Size={effective_size/1024:.2f} KB | encode={step_encode_elapsed:.2f} sec"
         )
 
-        # After first real measurement (method=2 direct on cold start or method=2 verify),
-        # the ratio is calibrated (1.0 if direct, measured if via probe). Stop the uncalibrated cap.
-        if has_actual_final_measurement and method_ratio_samples == 0:
+        # If this was a direct method=2 measurement (not via probe+verify), ratio is 1.0 (method=2 → method=2).
+        # For probe+verify, ratio was already measured and samples incremented in verify block.
+        if (
+            has_actual_final_measurement
+            and method_ratio_samples == 0
+            and not (probe_enabled and method_in_use != webp_method)
+        ):
+            # Direct method=2: e.g., cold start or bracket-guided final step.
+            method_ratio = 1.0
             method_ratio_samples = 1
 
         # Success check MUST come before timeout: an in-target result must always be saved
