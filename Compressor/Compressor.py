@@ -83,7 +83,7 @@ class GIFConfig:
     webp_animated_slow_step_sec: float = 20.0
     # Animated WEBP often needs 3-4 expensive passes (probe + verify).
     # 90s is too tight for high-frame clips and causes premature aborts.
-    webp_file_max_seconds: float = 150.0
+    webp_file_max_seconds: float = 120.0
     webp_animated_near_band_ratio: float = 0.10
     webp_animated_nudge_small_ratio: float = 0.04
     webp_animated_nudge_small_step: int = 1
@@ -98,7 +98,7 @@ class GIFConfig:
 
 @dataclass(frozen=True)
 class AppConfig:
-    version: str = "Compressor v8.59.28"
+    version: str = "Compressor v8.59.29"
     root_folder_path: str = r"C:\other\lab\pic"
     stats_file: str = field(default_factory=lambda: os.path.join(os.path.dirname(__file__), "CompressorStats.JSON"))
     stats_soft_limit_mb: float = 50.0
@@ -665,9 +665,13 @@ def _compress_animated_webp(
             lower_verify = int(target_min_bytes * (1.0 - effective_verify_margin))
             upper_verify = int(target_max_bytes * (1.0 + effective_verify_margin))
 
+            # When ratio is uncalibrated (samples=0), predicted_final can be wildly wrong.
+            # Also trigger verify when the raw probe_size itself is near the target range.
+            uncalibrated_probe_near = method_ratio_samples == 0 and probe_size >= lower_verify
             should_verify_final = (
                 target_min_bytes <= predicted_final <= target_max_bytes
                 or lower_verify <= predicted_final <= upper_verify
+                or uncalibrated_probe_near
                 or (bracket_known and (over_target_q - under_target_q) <= 2)
                 or step == gif_cfg.webp_animated_max_iterations
             )
