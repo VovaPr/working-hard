@@ -100,7 +100,7 @@ class GIFConfig:
 
 @dataclass(frozen=True)
 class AppConfig:
-    version: str = "Compressor v8.59.33"
+    version: str = "Compressor v8.59.34"
     root_folder_path: str = r"C:\other\lab\pic"
     stats_file: str = field(default_factory=lambda: os.path.join(os.path.dirname(__file__), "CompressorStats.JSON"))
     stats_soft_limit_mb: float = 50.0
@@ -598,11 +598,9 @@ def _compress_animated_webp(
             # Once we have a real under/over bracket, stop using probe estimates.
             # Further decisions must be based on actual method=2 results only.
             method_in_use = webp_method
-        elif probe_enabled and method_ratio_samples > 0:
-            # Probe mode is only useful once ratio is calibrated from a real measurement.
-            # Cold start (samples=0) always uses method=2 to get real calibration data immediately.
-            method_in_use = webp_method_fast
         else:
+            # Before the bracket is fully formed, always use method=2 for accurate measurements.
+            # Probe mode (method=0) is only safe as an optimization when we already know the bracket range.
             method_in_use = webp_method
         _step_elapsed = time.time() - started_at
         _bracket_str = f"{under_target_q}-{over_target_q}" if bracket_known else "none"
@@ -914,6 +912,12 @@ def _compress_animated_webp(
             )
         else:
             proposed_quality = max(45, min(100, int(quality * correction)))
+
+            # Never go backwards past a known partial bracket — prevent oscillation.
+            if under_target_q is not None:
+                proposed_quality = max(proposed_quality, under_target_q + 1)
+            if over_target_q is not None:
+                proposed_quality = min(proposed_quality, over_target_q - 1)
 
             # Uncalibrated probe ratio can be far off on new profiles; cap quality jump.
             if probe_enabled and method_ratio_samples == 0:
