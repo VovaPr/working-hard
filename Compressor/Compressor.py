@@ -90,11 +90,13 @@ class GIFConfig:
     webp_animated_nudge_large_step: int = 2
     # Before method-ratio is calibrated, cap quality jumps to avoid aggressive overshoot.
     webp_animated_uncalibrated_max_quality_step: int = 6
+    # As step count grows, allow larger jumps so we do not waste time on obviously low estimates.
+    webp_animated_uncalibrated_max_quality_step_growth: int = 2
 
 
 @dataclass(frozen=True)
 class AppConfig:
-    version: str = "Compressor v8.59.24"
+    version: str = "Compressor v8.59.25"
     root_folder_path: str = r"C:\other\lab\pic"
     stats_file: str = field(default_factory=lambda: os.path.join(os.path.dirname(__file__), "CompressorStats.JSON"))
     stats_soft_limit_mb: float = 50.0
@@ -850,7 +852,9 @@ def _compress_animated_webp(
 
             # Uncalibrated probe ratio can be far off on new profiles; cap quality jump.
             if probe_enabled and method_ratio_samples == 0:
-                max_step = max(1, int(gif_cfg.webp_animated_uncalibrated_max_quality_step))
+                base_step = max(1, int(gif_cfg.webp_animated_uncalibrated_max_quality_step))
+                step_growth = max(0, int(gif_cfg.webp_animated_uncalibrated_max_quality_step_growth))
+                max_step = min(12, base_step + step_growth * max(0, step - 1))
                 if proposed_quality > quality + max_step:
                     proposed_quality = quality + max_step
                 elif proposed_quality < quality - max_step:
