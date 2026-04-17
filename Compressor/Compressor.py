@@ -94,11 +94,13 @@ class GIFConfig:
     webp_animated_uncalibrated_max_quality_step_growth: int = 2
     # Ignore weak WEBP startup stats until the profile has been confirmed multiple times.
     webp_animated_startup_min_count: int = 2
+    # Allow more time for large files: effective_max = max(webp_file_max_seconds, frames * per_frame).
+    webp_animated_max_seconds_per_frame: float = 0.52
 
 
 @dataclass(frozen=True)
 class AppConfig:
-    version: str = "Compressor v8.59.29"
+    version: str = "Compressor v8.59.30"
     root_folder_path: str = r"C:\other\lab\pic"
     stats_file: str = field(default_factory=lambda: os.path.join(os.path.dirname(__file__), "CompressorStats.JSON"))
     stats_soft_limit_mb: float = 50.0
@@ -552,6 +554,15 @@ def _compress_animated_webp(
     # Seed with realistic method=0→method=2 ratio so quality steps are not over-aggressive.
     method_ratio = max(0.5, min(1.0, gif_cfg.webp_animated_probe_initial_method_ratio))
     method_ratio_samples = 0
+    effective_max_seconds = max(
+        gif_cfg.webp_file_max_seconds,
+        (frame_count or 0) * gif_cfg.webp_animated_max_seconds_per_frame,
+    )
+    if effective_max_seconds > gif_cfg.webp_file_max_seconds:
+        print(
+            f"{local_version} | WEBP animated timeout: {effective_max_seconds:.0f}s "
+            f"(frame-adjusted for {frame_count} frames, base={gif_cfg.webp_file_max_seconds:.0f}s)"
+        )
 
     can_use_direct_fast = False
     if direct_final_from_stats and gif_cfg.webp_animated_direct_final_fast_enabled and known_result_size_mb is not None:
@@ -587,14 +598,18 @@ def _compress_animated_webp(
             # Once we have a real under/over bracket, stop using probe estimates.
             # Further decisions must be based on actual method=2 results only.
             method_in_use = webp_method
+        elif probe_enabled and method_ratio_samples > 0:
+            # Probe mode is only useful once ratio is calibrated from a real measurement.
+            # Cold start (samples=0) always uses method=2 to get real calibration data immediately.
+            method_in_use = webp_method_fast
         else:
-            method_in_use = webp_method_fast if probe_enabled else webp_method
+            method_in_use = webp_method
         _step_elapsed = time.time() - started_at
         _bracket_str = f"{under_target_q}-{over_target_q}" if bracket_known else "none"
         print(
             f"{local_version} | WEBP animated step {step} | "
             f"Encoding... (q={quality}, method={method_in_use}) | "
-            f"bracket={_bracket_str} | elapsed={_step_elapsed:.1f}s/{gif_cfg.webp_file_max_seconds:.0f}s"
+            f"bracket={_bracket_str} | elapsed={_step_elapsed:.1f}s/{effective_max_seconds:.0f}s"
         )
         encode_start = time.time()
         try:
@@ -658,6 +673,7 @@ def _compress_animated_webp(
                 )
 
         should_verify_final = False
+        predicted_final = None
         if probe_enabled and method_in_use != webp_method and not direct_final_this_step:
             predicted_final = max(1, int(probe_size * method_ratio))
             effective_size = predicted_final
@@ -762,9 +778,24 @@ def _compress_animated_webp(
             print(f"{local_version} | WEBP animated bracket update | {_new_bracket}")
         else:
             print(f"{local_version} | WEBP animated bracket skipped (probe estimate, not method={webp_method})")
+            # Conclusive probe: if estimate is way outside target, trust the direction safely.
+            _conclusive_over = target_max_bytes * 1.5
+            _conclusive_under = target_min_bytes * 0.70
+            if predicted_final is not None and predicted_final > _conclusive_over:
+                over_target_q = quality if over_target_q is None else min(over_target_q, quality)
+                print(
+                    f"{local_version} | WEBP animated bracket (conclusive-over) | "
+                    f"over={over_target_q} (est={predicted_final/1024:.0f} KB >> {_conclusive_over/1024:.0f} KB)"
+                )
+            elif predicted_final is not None and probe_size < _conclusive_under:
+                under_target_q = quality if under_target_q is None else max(under_target_q, quality)
+                print(
+                    f"{local_version} | WEBP animated bracket (conclusive-under) | "
+                    f"under={under_target_q} (probe={probe_size/1024:.0f} KB << {_conclusive_under/1024:.0f} KB)"
+                )
 
         elapsed = time.time() - started_at
-        if elapsed >= gif_cfg.webp_file_max_seconds:
+        if elapsed >= effective_max_seconds:
             # Rescue attempt: if bracket is known, do one final method=2 encode at midpoint.
             if under_target_q is not None and over_target_q is not None and over_target_q - under_target_q >= 1:
                 rescue_q = (under_target_q + over_target_q) // 2
