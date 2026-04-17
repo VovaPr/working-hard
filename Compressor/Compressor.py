@@ -87,11 +87,13 @@ class GIFConfig:
     webp_animated_nudge_small_ratio: float = 0.04
     webp_animated_nudge_small_step: int = 1
     webp_animated_nudge_large_step: int = 2
+    # Before method-ratio is calibrated, cap quality jumps to avoid aggressive overshoot.
+    webp_animated_uncalibrated_max_quality_step: int = 6
 
 
 @dataclass(frozen=True)
 class AppConfig:
-    version: str = "Compressor v8.59.20"
+    version: str = "Compressor v8.59.21"
     root_folder_path: str = r"C:\other\lab\pic"
     stats_file: str = field(default_factory=lambda: os.path.join(os.path.dirname(__file__), "CompressorStats.JSON"))
     stats_soft_limit_mb: float = 50.0
@@ -731,6 +733,45 @@ def _compress_animated_webp(
 
         elapsed = time.time() - started_at
         if elapsed >= gif_cfg.webp_file_max_seconds:
+            # Rescue attempt: if bracket is known, do one final method=2 encode at midpoint.
+            if under_target_q is not None and over_target_q is not None and over_target_q - under_target_q >= 1:
+                rescue_q = (under_target_q + over_target_q) // 2
+                print(
+                    f"{local_version} | WEBP timeout-rescue | "
+                    f"bracket={under_target_q}-{over_target_q} -> verify q={rescue_q}"
+                )
+                rescue_start = time.time()
+                try:
+                    rescue_buf = _save_webp_frames(frames, durations, rescue_q, method=webp_method)
+                    rescue_method = webp_method
+                except ValueError:
+                    rescue_method = 0
+                    rescue_buf = _save_webp_frames(frames, durations, rescue_q, method=rescue_method)
+                rescue_elapsed = time.time() - rescue_start
+                rescue_size = len(rescue_buf.getvalue())
+                if target_min_bytes <= rescue_size <= target_max_bytes:
+                    if stats_mgr_webp and width and height and frame_count:
+                        stats_mgr_webp.save_step(
+                            width,
+                            height,
+                            frame_count,
+                            init_size / (1024 * 1024),
+                            rescue_q,
+                            rescue_method,
+                            rescue_size / (1024 * 1024),
+                            rescue_elapsed,
+                        )
+                    with open(path, "wb") as f:
+                        f.write(rescue_buf.getvalue())
+                    total_elapsed = time.time() - started_at
+                    print(
+                        f"{local_version} | ✅ WEBP success (timeout-rescue): "
+                        f"{init_size/1024:.2f} KB -> {rescue_size/1024:.2f} KB "
+                        f"| Quality={rescue_q} | method={rescue_method}"
+                    )
+                    print(f"{local_version} | Finished in {total_elapsed:.2f} sec")
+                    return
+
             print(
                 f"{local_version} | ⚠ WEBP animated timeout {elapsed:.2f} sec; "
                 f"file kept unchanged"
@@ -793,7 +834,17 @@ def _compress_animated_webp(
                 f"over_q={over_target_q} -> next_q={quality}"
             )
         else:
-            quality = max(45, min(100, int(quality * correction)))
+            proposed_quality = max(45, min(100, int(quality * correction)))
+
+            # Uncalibrated probe ratio can be far off on new profiles; cap quality jump.
+            if probe_enabled and method_ratio_samples == 0:
+                max_step = max(1, int(gif_cfg.webp_animated_uncalibrated_max_quality_step))
+                if proposed_quality > quality + max_step:
+                    proposed_quality = quality + max_step
+                elif proposed_quality < quality - max_step:
+                    proposed_quality = quality - max_step
+
+            quality = proposed_quality
 
         print(f"{local_version} | WEBP step {resize_count+1} | Quality={quality}")
 

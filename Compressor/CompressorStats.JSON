@@ -1732,6 +1732,16 @@
       "med_size": 13.850831031799316,
       "scale": 0.19302310912152323,
       "timestamp": 1776331376.9361134
+    },
+    {
+      "palette": 256,
+      "width": 402,
+      "height": 648,
+      "frames": 243,
+      "fast_size": 7.021265029907227,
+      "med_size": 14.04379653930664,
+      "scale": 1.1975091174379682,
+      "timestamp": 1776393491.9145904
     }
   ],
   "webp_animated_stats": [
@@ -1743,9 +1753,9 @@
       "quality": 77,
       "method": 2,
       "result_size_mb": 13.77,
-      "encode_sec": 46.62,
-      "timestamp": 1776355406.2048988,
-      "count": 4
+      "encode_sec": 42.79,
+      "timestamp": 1776356258.6858702,
+      "count": 5
     }
   ]
 }
