@@ -98,7 +98,7 @@ class GIFConfig:
 
 @dataclass(frozen=True)
 class AppConfig:
-    version: str = "Compressor v8.59.27"
+    version: str = "Compressor v8.59.28"
     root_folder_path: str = r"C:\other\lab\pic"
     stats_file: str = field(default_factory=lambda: os.path.join(os.path.dirname(__file__), "CompressorStats.JSON"))
     stats_soft_limit_mb: float = 50.0
@@ -589,9 +589,12 @@ def _compress_animated_webp(
             method_in_use = webp_method
         else:
             method_in_use = webp_method_fast if probe_enabled else webp_method
+        _step_elapsed = time.time() - started_at
+        _bracket_str = f"{under_target_q}-{over_target_q}" if bracket_known else "none"
         print(
             f"{local_version} | WEBP animated step {step} | "
-            f"Encoding... (q={quality}, method={method_in_use})"
+            f"Encoding... (q={quality}, method={method_in_use}) | "
+            f"bracket={_bracket_str} | elapsed={_step_elapsed:.1f}s/{gif_cfg.webp_file_max_seconds:.0f}s"
         )
         encode_start = time.time()
         try:
@@ -672,7 +675,8 @@ def _compress_animated_webp(
             print(
                 f"{local_version} | WEBP animated probe | "
                 f"Size={probe_size/1024:.2f} KB -> est_final={predicted_final/1024:.2f} KB "
-                f"| ratio={method_ratio:.3f} | verify_margin={effective_verify_margin:.2f}"
+                f"| ratio={method_ratio:.3f} (samples={method_ratio_samples}) "
+                f"| verify_margin={effective_verify_margin:.2f} | verify={should_verify_final}"
             )
 
             if should_verify_final:
@@ -750,6 +754,10 @@ def _compress_animated_webp(
                 under_target_q = quality if under_target_q is None else max(under_target_q, quality)
             elif effective_size > target_max_bytes:
                 over_target_q = quality if over_target_q is None else min(over_target_q, quality)
+            _new_bracket = f"{under_target_q}-{over_target_q}" if (under_target_q is not None and over_target_q is not None) else f"under={under_target_q} over={over_target_q}"
+            print(f"{local_version} | WEBP animated bracket update | {_new_bracket}")
+        else:
+            print(f"{local_version} | WEBP animated bracket skipped (probe estimate, not method={webp_method})")
 
         elapsed = time.time() - started_at
         if elapsed >= gif_cfg.webp_file_max_seconds:
@@ -862,8 +870,18 @@ def _compress_animated_webp(
                 step_growth = max(0, int(gif_cfg.webp_animated_uncalibrated_max_quality_step_growth))
                 max_step = min(12, base_step + step_growth * max(0, step - 1))
                 if proposed_quality > quality + max_step:
+                    print(
+                        f"{local_version} | WEBP animated uncalibrated cap | "
+                        f"proposed_q={proposed_quality} -> capped to {quality + max_step} "
+                        f"(max_step={max_step}, samples=0)"
+                    )
                     proposed_quality = quality + max_step
                 elif proposed_quality < quality - max_step:
+                    print(
+                        f"{local_version} | WEBP animated uncalibrated cap | "
+                        f"proposed_q={proposed_quality} -> capped to {quality - max_step} "
+                        f"(max_step={max_step}, samples=0)"
+                    )
                     proposed_quality = quality - max_step
 
             quality = proposed_quality
