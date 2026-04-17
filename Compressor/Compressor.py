@@ -92,11 +92,13 @@ class GIFConfig:
     webp_animated_uncalibrated_max_quality_step: int = 6
     # As step count grows, allow larger jumps so we do not waste time on obviously low estimates.
     webp_animated_uncalibrated_max_quality_step_growth: int = 2
+    # Ignore weak WEBP startup stats until the profile has been confirmed multiple times.
+    webp_animated_startup_min_count: int = 2
 
 
 @dataclass(frozen=True)
 class AppConfig:
-    version: str = "Compressor v8.59.26"
+    version: str = "Compressor v8.59.27"
     root_folder_path: str = r"C:\other\lab\pic"
     stats_file: str = field(default_factory=lambda: os.path.join(os.path.dirname(__file__), "CompressorStats.JSON"))
     stats_soft_limit_mb: float = 50.0
@@ -1133,12 +1135,17 @@ class AnimatedWebPStatsManager:
         exact_init_tolerance = max(0.05, float(gif_cfg.webp_animated_direct_final_init_tolerance_mb))
         candidates = []
 
+        min_count = max(1, int(gif_cfg.webp_animated_startup_min_count))
+
         for entry in self.webp_stats:
             width_diff = abs(entry["width"] - width) / max(width, 1)
             height_diff = abs(entry["height"] - height) / max(height, 1)
             frame_diff = abs(entry["frames"] - frames) / max(frames, 1)
+            entry_count = int(entry.get("count", 1) or 1)
 
             if width_diff > max_diff_ratio or height_diff > max_diff_ratio or frame_diff > max_diff_ratio:
+                continue
+            if entry_count < min_count:
                 continue
 
             result_size = entry["result_size_mb"]
@@ -1162,6 +1169,7 @@ class AnimatedWebPStatsManager:
                     "quality": entry["quality"],
                     "method": entry.get("method", gif_cfg.webp_animated_method_default),
                     "result_size_mb": result_size,
+                    "count": entry_count,
                     "init_diff": init_diff,
                     "mid_diff": mid_diff,
                     "timestamp": entry.get("timestamp", 0),
@@ -1189,8 +1197,9 @@ class AnimatedWebPStatsManager:
             "quality": best["quality"],
             "method": best["method"],
             "result_size_mb": best.get("result_size_mb"),
+            "count": best.get("count", 1),
             "direct_final": best["direct_final"],
-            "source": f"{source_prefix} ({source_suffix}, records={self.stats_count()})",
+            "source": f"{source_prefix} ({source_suffix}, records={self.stats_count()}, count={best.get('count', 1)})",
         }
 
     def predict_startup_quality(self, width, height, frames, init_size_mb, target_min_mb, target_max_mb, gif_cfg):
