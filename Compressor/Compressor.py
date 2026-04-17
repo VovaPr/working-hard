@@ -94,7 +94,7 @@ class GIFConfig:
 
 @dataclass(frozen=True)
 class AppConfig:
-    version: str = "Compressor v8.59.23"
+    version: str = "Compressor v8.59.24"
     root_folder_path: str = r"C:\other\lab\pic"
     stats_file: str = field(default_factory=lambda: os.path.join(os.path.dirname(__file__), "CompressorStats.JSON"))
     stats_soft_limit_mb: float = 50.0
@@ -579,6 +579,10 @@ def _compress_animated_webp(
         direct_final_this_step = bool(direct_final_from_stats and step == 1)
         if direct_final_this_step:
             method_in_use = webp_method_direct_fast if can_use_direct_fast else webp_method
+        elif bracket_known:
+            # Once we have a real under/over bracket, stop using probe estimates.
+            # Further decisions must be based on actual method=2 results only.
+            method_in_use = webp_method
         else:
             method_in_use = webp_method_fast if probe_enabled else webp_method
         print(
