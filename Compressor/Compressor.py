@@ -100,7 +100,7 @@ class GIFConfig:
 
 @dataclass(frozen=True)
 class AppConfig:
-    version: str = "Compressor v8.59.34"
+    version: str = "Compressor v8.59.35"
     root_folder_path: str = r"C:\other\lab\pic"
     stats_file: str = field(default_factory=lambda: os.path.join(os.path.dirname(__file__), "CompressorStats.JSON"))
     stats_soft_limit_mb: float = 50.0
@@ -587,6 +587,10 @@ def _compress_animated_webp(
 
     under_target_q = None
     over_target_q = None
+    best_effort_buf = None
+    best_effort_size = None
+    best_effort_q = None
+    best_effort_method = None
 
     for step in range(1, gif_cfg.webp_animated_max_iterations + 1):
         quality = max(1, min(100, int(quality)))
@@ -783,6 +787,15 @@ def _compress_animated_webp(
             print(f"{local_version} | Finished in {elapsed:.2f} sec")
             return
 
+        # Track best near-miss: closest result to target_mid (only from real method=2 measurements).
+        if has_actual_final_measurement and not _in_target:
+            _miss_abs = abs(effective_size - target_mid_bytes)
+            if best_effort_size is None or _miss_abs < abs(best_effort_size - target_mid_bytes):
+                best_effort_buf = effective_buf
+                best_effort_size = effective_size
+                best_effort_q = quality
+                best_effort_method = effective_method
+
         if has_actual_final_measurement:
             if effective_size < target_min_bytes:
                 under_target_q = quality if under_target_q is None else max(under_target_q, quality)
@@ -860,10 +873,43 @@ def _compress_animated_webp(
             )
             return
 
-        # Near-target miss: nudge quality by 1-2 points to avoid overshooting and extra full re-encodes.
+        # When bracket is fully known and gap is 1, no integer q exists in range.
+        # Accept best-effort result (closest to target_mid) rather than looping forever.
+        if (
+            has_actual_final_measurement
+            and under_target_q is not None
+            and over_target_q is not None
+            and over_target_q - under_target_q <= 1
+            and best_effort_buf is not None
+        ):
+            _best_miss_pct = abs(best_effort_size - target_mid_bytes) / target_mid_bytes * 100
+            print(
+                f"{local_version} | WEBP best-effort accept | "
+                f"bracket={under_target_q}-{over_target_q}, no integer solution | "
+                f"q={best_effort_q} size={best_effort_size/1024:.2f} KB miss={_best_miss_pct:.2f}%"
+            )
+            if stats_mgr_webp and width and height and frame_count:
+                stats_mgr_webp.save_step(
+                    width, height, frame_count,
+                    init_size / (1024 * 1024),
+                    best_effort_q, best_effort_method,
+                    best_effort_size / (1024 * 1024),
+                    step_encode_elapsed,
+                )
+            with open(path, "wb") as f:
+                f.write(best_effort_buf.getvalue())
+            elapsed = time.time() - started_at
+            print(
+                f"{local_version} | ✅ WEBP best-effort: {init_size/1024:.2f} KB -> {best_effort_size/1024:.2f} KB "
+                f"| Quality={best_effort_q} | Resized {resize_count} times"
+            )
+            print(f"{local_version} | Finished in {elapsed:.2f} sec")
+            return
+
+        # Near-target miss: nudge quality by 1-2 points.
+        # Only fires when bracket is NOT yet known — once bracket is set, binary search takes over.
         near_mid_ratio = abs(effective_size - target_mid_bytes) / target_mid_bytes if target_mid_bytes > 0 else 0.0
-        has_bracket = under_target_q is not None and over_target_q is not None
-        if near_mid_ratio <= gif_cfg.webp_animated_near_band_ratio:
+        if near_mid_ratio <= gif_cfg.webp_animated_near_band_ratio and not bracket_known:
             miss_ratio = (
                 (target_min_bytes - effective_size) / target_min_bytes
                 if effective_size < target_min_bytes and target_min_bytes > 0
@@ -943,9 +989,33 @@ def _compress_animated_webp(
 
         print(f"{local_version} | WEBP step {resize_count+1} | Quality={quality}")
 
+    _final_msg = f"could not hit {gif_cfg.target_min_mb:.2f}-{gif_cfg.target_max_mb:.2f} MB"
+    if best_effort_buf is not None:
+        _best_miss_pct = abs(best_effort_size - target_mid_bytes) / target_mid_bytes * 100
+        print(
+            f"{local_version} | WEBP best-effort accept (max iterations) | "
+            f"q={best_effort_q} size={best_effort_size/1024:.2f} KB miss={_best_miss_pct:.2f}%"
+        )
+        if stats_mgr_webp and width and height and frame_count:
+            stats_mgr_webp.save_step(
+                width, height, frame_count,
+                init_size / (1024 * 1024),
+                best_effort_q, best_effort_method,
+                best_effort_size / (1024 * 1024),
+                0,
+            )
+        with open(path, "wb") as f:
+            f.write(best_effort_buf.getvalue())
+        elapsed = time.time() - started_at
+        print(
+            f"{local_version} | ✅ WEBP best-effort: {init_size/1024:.2f} KB -> {best_effort_size/1024:.2f} KB "
+            f"| Quality={best_effort_q} | Resized {resize_count} times"
+        )
+        print(f"{local_version} | Finished in {elapsed:.2f} sec")
+        return
     print(
         f"{local_version} | ⚠ WEBP animated max iterations reached; "
-        f"file kept unchanged (could not hit {gif_cfg.target_min_mb:.2f}-{gif_cfg.target_max_mb:.2f} MB)"
+        f"file kept unchanged ({_final_msg})"
     )
     return
 
