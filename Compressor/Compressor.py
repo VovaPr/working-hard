@@ -94,7 +94,7 @@ class GIFConfig:
 
 @dataclass(frozen=True)
 class AppConfig:
-    version: str = "Compressor v8.59.22"
+    version: str = "Compressor v8.59.23"
     root_folder_path: str = r"C:\other\lab\pic"
     stats_file: str = field(default_factory=lambda: os.path.join(os.path.dirname(__file__), "CompressorStats.JSON"))
     stats_soft_limit_mb: float = 50.0
@@ -734,11 +734,21 @@ def _compress_animated_webp(
             print(f"{local_version} | Finished in {elapsed:.2f} sec")
             return
 
+        if effective_size < target_min_bytes:
+            under_target_q = quality if under_target_q is None else max(under_target_q, quality)
+        elif effective_size > target_max_bytes:
+            over_target_q = quality if over_target_q is None else min(over_target_q, quality)
+
         elapsed = time.time() - started_at
         if elapsed >= gif_cfg.webp_file_max_seconds:
             # Rescue attempt: if bracket is known, do one final method=2 encode at midpoint.
             if under_target_q is not None and over_target_q is not None and over_target_q - under_target_q >= 1:
                 rescue_q = (under_target_q + over_target_q) // 2
+                if rescue_q == quality:
+                    if effective_size < target_min_bytes and rescue_q < over_target_q:
+                        rescue_q += 1
+                    elif effective_size > target_max_bytes and rescue_q > under_target_q:
+                        rescue_q -= 1
                 print(
                     f"{local_version} | WEBP timeout-rescue | "
                     f"bracket={under_target_q}-{over_target_q} -> verify q={rescue_q}"
@@ -780,11 +790,6 @@ def _compress_animated_webp(
                 f"file kept unchanged"
             )
             return
-
-        if effective_size < target_min_bytes:
-            under_target_q = quality if under_target_q is None else max(under_target_q, quality)
-        elif effective_size > target_max_bytes:
-            over_target_q = quality if over_target_q is None else min(over_target_q, quality)
 
         # Near-target miss: nudge quality by 1-2 points to avoid overshooting and extra full re-encodes.
         near_mid_ratio = abs(effective_size - target_mid_bytes) / target_mid_bytes if target_mid_bytes > 0 else 0.0
