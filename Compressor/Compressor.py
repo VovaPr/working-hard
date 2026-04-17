@@ -82,8 +82,8 @@ class GIFConfig:
     webp_animated_probe_initial_method_ratio: float = 0.75
     webp_animated_slow_step_sec: float = 20.0
     # Animated WEBP often needs 3-4 expensive passes (probe + verify).
-    # 90s is too tight for high-frame clips and causes premature aborts.
-    webp_file_max_seconds: float = 120.0
+    # Set to 3600s (1 hour) to allow unlimited convergence until target range found.
+    webp_file_max_seconds: float = 3600.0
     webp_animated_near_band_ratio: float = 0.10
     webp_animated_nudge_small_ratio: float = 0.04
     webp_animated_nudge_small_step: int = 1
@@ -100,7 +100,7 @@ class GIFConfig:
 
 @dataclass(frozen=True)
 class AppConfig:
-    version: str = "Compressor v8.59.32"
+    version: str = "Compressor v8.59.33"
     root_folder_path: str = r"C:\other\lab\pic"
     stats_file: str = field(default_factory=lambda: os.path.join(os.path.dirname(__file__), "CompressorStats.JSON"))
     stats_soft_limit_mb: float = 50.0
