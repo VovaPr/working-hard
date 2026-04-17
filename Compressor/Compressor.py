@@ -74,6 +74,7 @@ class GIFConfig:
     webp_animated_direct_final_enabled: bool = True
     webp_animated_direct_final_init_tolerance_mb: float = 0.35
     webp_animated_probe_verify_margin_ratio: float = 0.06
+    webp_animated_probe_verify_margin_growth_per_step: float = 0.03
     webp_animated_probe_recalibrate_every: int = 3
     # Initial estimate of how much smaller method=2 output is vs method=0 (fast probe).
     # method=2 typically produces ~20-30% smaller files than method=0.
@@ -93,7 +94,7 @@ class GIFConfig:
 
 @dataclass(frozen=True)
 class AppConfig:
-    version: str = "Compressor v8.59.21"
+    version: str = "Compressor v8.59.22"
     root_folder_path: str = r"C:\other\lab\pic"
     stats_file: str = field(default_factory=lambda: os.path.join(os.path.dirname(__file__), "CompressorStats.JSON"))
     stats_soft_limit_mb: float = 50.0
@@ -543,6 +544,7 @@ def _compress_animated_webp(
     direct_fast_growth = max(1.0, float(gif_cfg.webp_animated_direct_final_fast_max_growth))
     probe_enabled = bool(gif_cfg.webp_animated_probe_enabled and webp_method_fast != webp_method)
     verify_margin_ratio = max(0.0, min(0.20, gif_cfg.webp_animated_probe_verify_margin_ratio))
+    verify_margin_growth = max(0.0, min(0.10, gif_cfg.webp_animated_probe_verify_margin_growth_per_step))
     # Seed with realistic method=0→method=2 ratio so quality steps are not over-aggressive.
     method_ratio = max(0.5, min(1.0, gif_cfg.webp_animated_probe_initial_method_ratio))
     method_ratio_samples = 0
@@ -646,8 +648,9 @@ def _compress_animated_webp(
         if probe_enabled and method_in_use != webp_method and not direct_final_this_step:
             predicted_final = max(1, int(probe_size * method_ratio))
             effective_size = predicted_final
-            lower_verify = int(target_min_bytes * (1.0 - verify_margin_ratio))
-            upper_verify = int(target_max_bytes * (1.0 + verify_margin_ratio))
+            effective_verify_margin = min(0.20, verify_margin_ratio + verify_margin_growth * max(0, step - 1))
+            lower_verify = int(target_min_bytes * (1.0 - effective_verify_margin))
+            upper_verify = int(target_max_bytes * (1.0 + effective_verify_margin))
 
             should_verify_final = (
                 target_min_bytes <= predicted_final <= target_max_bytes
@@ -659,7 +662,7 @@ def _compress_animated_webp(
             print(
                 f"{local_version} | WEBP animated probe | "
                 f"Size={probe_size/1024:.2f} KB -> est_final={predicted_final/1024:.2f} KB "
-                f"| ratio={method_ratio:.3f}"
+                f"| ratio={method_ratio:.3f} | verify_margin={effective_verify_margin:.2f}"
             )
 
             if should_verify_final:
