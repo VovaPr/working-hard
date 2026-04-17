@@ -100,7 +100,7 @@ class GIFConfig:
 
 @dataclass(frozen=True)
 class AppConfig:
-    version: str = "Compressor v8.59.30"
+    version: str = "Compressor v8.59.31"
     root_folder_path: str = r"C:\other\lab\pic"
     stats_file: str = field(default_factory=lambda: os.path.join(os.path.dirname(__file__), "CompressorStats.JSON"))
     stats_soft_limit_mb: float = 50.0
@@ -741,9 +741,19 @@ def _compress_animated_webp(
             f"Size={effective_size/1024:.2f} KB | encode={step_encode_elapsed:.2f} sec"
         )
 
+        # After first real measurement (method=2 direct on cold start or method=2 verify),
+        # the ratio is calibrated (1.0 if direct, measured if via probe). Stop the uncalibrated cap.
+        if has_actual_final_measurement and method_ratio_samples == 0:
+            method_ratio_samples = 1
+
         # Success check MUST come before timeout: an in-target result must always be saved
         # regardless of how long the encode took. Timeout only discards out-of-range results.
-        if target_min_bytes <= effective_size <= target_max_bytes:
+        _in_target = target_min_bytes <= effective_size <= target_max_bytes
+        if _in_target:
+            print(
+                f"{local_version} | WEBP animated success check: "
+                f"size={effective_size/1024:.2f} KB in range [{target_min_bytes/1024:.2f}, {target_max_bytes/1024:.2f}] KB"
+            )
             if stats_mgr_webp and width and height and frame_count:
                 stats_mgr_webp.save_step(
                     width,
