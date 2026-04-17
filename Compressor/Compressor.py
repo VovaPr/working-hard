@@ -96,7 +96,7 @@ class GIFConfig:
 
 @dataclass(frozen=True)
 class AppConfig:
-    version: str = "Compressor v8.59.25"
+    version: str = "Compressor v8.59.26"
     root_folder_path: str = r"C:\other\lab\pic"
     stats_file: str = field(default_factory=lambda: os.path.join(os.path.dirname(__file__), "CompressorStats.JSON"))
     stats_soft_limit_mb: float = 50.0
@@ -615,6 +615,7 @@ def _compress_animated_webp(
         effective_buf = probe_buf
         effective_method = method_in_use
         step_encode_elapsed = probe_encode_elapsed
+        has_actual_final_measurement = method_in_use == webp_method
 
         if direct_final_this_step and method_in_use != webp_method:
             if target_min_bytes <= probe_size <= target_max_bytes:
@@ -644,6 +645,7 @@ def _compress_animated_webp(
                 effective_size = final_size
                 effective_buf = final_buf
                 effective_method = final_method
+                has_actual_final_measurement = True
                 step_encode_elapsed += fallback_elapsed
                 print(
                     f"{local_version} | WEBP direct-fast fallback result | "
@@ -701,6 +703,7 @@ def _compress_animated_webp(
                 effective_size = final_size
                 effective_buf = final_buf
                 effective_method = final_method
+                has_actual_final_measurement = True
                 print(
                     f"{local_version} | WEBP animated verify | "
                     f"final={final_size/1024:.2f} KB | method={final_method} "
@@ -740,10 +743,11 @@ def _compress_animated_webp(
             print(f"{local_version} | Finished in {elapsed:.2f} sec")
             return
 
-        if effective_size < target_min_bytes:
-            under_target_q = quality if under_target_q is None else max(under_target_q, quality)
-        elif effective_size > target_max_bytes:
-            over_target_q = quality if over_target_q is None else min(over_target_q, quality)
+        if has_actual_final_measurement:
+            if effective_size < target_min_bytes:
+                under_target_q = quality if under_target_q is None else max(under_target_q, quality)
+            elif effective_size > target_max_bytes:
+                over_target_q = quality if over_target_q is None else min(over_target_q, quality)
 
         elapsed = time.time() - started_at
         if elapsed >= gif_cfg.webp_file_max_seconds:
