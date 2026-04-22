@@ -247,12 +247,33 @@ BEGIN
 END
 
 /* ------------------------------------------------------------------
-   7) PRINT in chunks (avoid SSMS truncation)
+   7) PRINT line-by-line (avoid splitting a RESTORE command mid-path)
 -------------------------------------------------------------------- */
-DECLARE @i int = 1, @len int = LEN(@msg), @chunk nvarchar(4000);
-WHILE @i <= @len
+DECLARE
+    @remaining nvarchar(MAX) = REPLACE(@msg, CHAR(13), N''),
+    @line nvarchar(MAX),
+    @newlinePos int;
+
+WHILE LEN(@remaining) > 0
 BEGIN
-    SET @chunk = SUBSTRING(@msg, @i, 4000);
-    PRINT @chunk;
-    SET @i += 4000;
+    SET @newlinePos = CHARINDEX(CHAR(10), @remaining);
+
+    IF @newlinePos = 0
+    BEGIN
+        SET @line = @remaining;
+        SET @remaining = N'';
+    END
+    ELSE
+    BEGIN
+        SET @line = SUBSTRING(@remaining, 1, @newlinePos - 1);
+        SET @remaining = SUBSTRING(@remaining, @newlinePos + 1, LEN(@remaining));
+    END
+
+    WHILE LEN(@line) > 4000
+    BEGIN
+        PRINT LEFT(@line, 4000);
+        SET @line = SUBSTRING(@line, 4001, LEN(@line));
+    END
+
+    PRINT @line;
 END;
