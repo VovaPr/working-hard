@@ -1,7 +1,7 @@
 /*
     LOG CHAIN AFTER COMPLETION TIME (PRINT ONLY)
     - Builds RESTORE LOG commands after a given completion timestamp
-    - Handles multi-file LOG media sets (striped backups)
+    - Generates one DISK path per LOG backup set
     - Prints only (does not execute restores)
 */
 
@@ -49,7 +49,7 @@ BEGIN
         @MediaSetId int,
         @BackupStart datetime,
         @BackupFinish datetime,
-        @FromClause nvarchar(MAX);
+        @LogPath nvarchar(4000);
 
     DECLARE backup_cur CURSOR LOCAL FAST_FORWARD FOR
         SELECT BackupSetId, MediaSetId, BackupStart, BackupFinish
@@ -61,42 +61,21 @@ BEGIN
 
     WHILE @@FETCH_STATUS = 0
     BEGIN
-        DECLARE @Files TABLE (
-            Seq int NOT NULL,
-            FilePath nvarchar(4000) NOT NULL
-        );
-
-        INSERT INTO @Files (Seq, FilePath)
-        SELECT
-            bmf.family_sequence_number,
-            bmf.physical_device_name
+        SELECT TOP (1)
+            @LogPath = bmf.physical_device_name
         FROM msdb.dbo.backupmediafamily bmf
         WHERE bmf.media_set_id = @MediaSetId
-        ORDER BY bmf.family_sequence_number;
+        ORDER BY bmf.family_sequence_number DESC;
 
-        IF EXISTS (SELECT 1 FROM @Files)
+        IF @LogPath IS NOT NULL
         BEGIN
-            SET @FromClause = N'FROM' + CHAR(10);
-
-            ;WITH f AS (
-                SELECT
-                    Seq,
-                    FilePath,
-                    ROW_NUMBER() OVER (ORDER BY Seq) AS rn,
-                    COUNT(*) OVER () AS cnt
-                FROM @Files
-            )
-            SELECT @FromClause = @FromClause
-                + N'    DISK = N''' + REPLACE(FilePath, '''', '''''') + N''''
-                + CASE WHEN rn < cnt THEN N',' ELSE N'' END + CHAR(10)
-            FROM f;
-
             SET @msg = @msg
                 + N'-- LOG backup set id: ' + CAST(@BackupSetId AS nvarchar(20))
                 + N' (start=' + CONVERT(nvarchar(30), @BackupStart, 120)
                 + N', finish=' + CONVERT(nvarchar(30), @BackupFinish, 120) + N')' + CHAR(10)
                 + N'RESTORE LOG ' + QUOTENAME(@DatabaseName) + CHAR(10)
-                + @FromClause
+                + N'FROM' + CHAR(10)
+                + N'    DISK = N''' + REPLACE(@LogPath, '''', '''''') + N'''' + CHAR(10)
                 + N'WITH NORECOVERY, STATS = 5;' + CHAR(10) + CHAR(10);
         END
         ELSE
@@ -105,6 +84,8 @@ BEGIN
                 + N'-- WARNING: No media files found for LOG backup_set_id='
                 + CAST(@BackupSetId AS nvarchar(20)) + N'.' + CHAR(10);
         END
+
+            SET @LogPath = NULL;
 
         FETCH NEXT FROM backup_cur INTO @BackupSetId, @MediaSetId, @BackupStart, @BackupFinish;
     END
