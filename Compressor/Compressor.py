@@ -1543,7 +1543,9 @@ def _run_fastoctree_trial(
     Result is cached by scale: a repeated call with the same scale is free.
     Used to estimate output size before launching the expensive MEDIANCUT pass.
     """
+    _resize_start = time.time()
     resized_frames = resize_frames(frames_raw, width, height, scale)
+    print(f"{VERSION} | [diag] resize scale={scale:.3f} elapsed={time.time() - _resize_start:.2f}s")
     key = _scale_key(scale)
 
     if key in fast_cache:
@@ -1667,9 +1669,11 @@ def balanced_compress_gif(input_path, gif_cfg=CONFIG.gif):
         init_size = os.path.getsize(input_path) / (1024 * 1024)
         print(f"{VERSION} | Initial Size: {init_size:.2f} MB | Frames={total_frames} | Palette={colors_first} | WxH={width}x{height}")
 
+        _decode_start = time.time()
         for frame in ImageSequence.Iterator(img):
             frames_raw.append(frame.convert("RGB"))
             durations.append(frame.info.get("duration", 100))
+        print(f"{VERSION} | [diag] decode={time.time() - _decode_start:.2f}s ({total_frames} frames)")
 
     # ⚠️ DO NOT CHANGE workers — MEDIANCUT is memory-intensive per frame;
     # using more than half CPUs causes RAM pressure and slows down the whole system.
@@ -1715,7 +1719,9 @@ def balanced_compress_gif(input_path, gif_cfg=CONFIG.gif):
         and total_frames >= gif_cfg.temporal_min_frames
     )
 
+    _pool_start = time.time()
     with ProcessPoolExecutor(max_workers=workers) as executor:
+        print(f"{VERSION} | [diag] pool_startup={time.time() - _pool_start:.2f}s")
         for iteration in range(gif_cfg.max_safe_iterations):
             resized_frames, fast_size, fast_bytes = _run_fastoctree_trial(
                 iteration=iteration,
@@ -2178,9 +2184,11 @@ def balanced_compress_gif(input_path, gif_cfg=CONFIG.gif):
             # ⚠️ FINAL CHECK: The only acceptable outcome is strictly within [13.5–14.99] MB.
             # in_target enforces this IMMUTABLE contract. If size is out of bounds, loop continues.
             if in_preferred_corridor or in_target:
+                _save_start = time.time()
                 stats_mgr.save_stats(palette_limit, width, height, total_frames, fast_size, med_size, scale)
                 with open(input_path, "wb") as f:
                     f.write(med_bytes)
+                print(f"{VERSION} | [diag] save+stats={time.time() - _save_start:.2f}s")
                 elapsed = time.time() - started_at
                 _print_gif_result_header(input_path, total_frames, colors_first, width, height)
                 print(
