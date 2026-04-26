@@ -56,7 +56,7 @@ class GIFConfig:
     # For dense palettes, neighbor-based predictions can under-estimate MEDIANCUT output.
     # Use sample probe in these high-risk cases to skip costly bad first MEDIANCUT runs.
     sample_probe_neighbor_min_palette: int = 220
-    sample_probe_neighbor_min_frames: int = 180
+    sample_probe_neighbor_min_frames: int = 120
     fast_direct_accept_enabled: bool = True
     fast_direct_min_frames: int = 120
     probe_skip_overflow_margin: float = 1.08
@@ -1830,7 +1830,6 @@ def balanced_compress_gif(input_path, gif_cfg=CONFIG.gif):
                 )
                 print(f"{VERSION} | -> next scale={suggested_scale:.3f}")
                 scale = suggested_scale
-                sample_probe_done = True
                 continue
 
             source_is_neighbor = source.startswith("neighbor stats")
@@ -1844,7 +1843,7 @@ def balanced_compress_gif(input_path, gif_cfg=CONFIG.gif):
             if (
                 gif_cfg.sample_probe_enabled
                 and not sample_probe_done
-                and iteration == 0
+                and iteration <= 1
                 and (should_probe_formula or should_probe_neighbor)
                 and total_frames >= 120
             ):
@@ -1869,6 +1868,17 @@ def balanced_compress_gif(input_path, gif_cfg=CONFIG.gif):
                         f"| finished in {probe_elapsed:.2f} sec"
                     )
 
+            # Reuse measured sample ratio on subsequent iteration(s) before first MEDIANCUT hit.
+            # This helps avoid expensive overshoot when stats under-estimate MEDIANCUT for dense GIFs.
+            if sample_ratio and sample_ratio > 1.0:
+                calibrated_prediction = fast_size * sample_ratio
+                if calibrated_prediction > predicted_medcut:
+                    predicted_medcut = calibrated_prediction
+                    print(
+                        f"{VERSION} | Probe carry-over ratio={sample_ratio:.3f} "
+                        f"-> adjusted MEDIANCUT={predicted_medcut:.2f} MB"
+                    )
+
             print(f"{VERSION} | -> Predicted MEDIANCUT={predicted_medcut:.2f} MB | scale={scale:.3f}")
             print(f"{VERSION} | -> source: {source}")
 
@@ -1880,13 +1890,13 @@ def balanced_compress_gif(input_path, gif_cfg=CONFIG.gif):
                 and fast_size > gif_cfg.target_max_mb * 0.90
             )
             can_skip_probe_overflow = (
-                iteration == 0
+                iteration <= 1
                 and (should_probe_formula or should_probe_neighbor)
                 and sample_ratio is not None
                 and predicted_medcut > gif_cfg.target_max_mb * gif_cfg.probe_skip_overflow_margin
             )
             can_skip_probe_underflow = (
-                iteration == 0
+                iteration <= 1
                 and (should_probe_formula or should_probe_neighbor)
                 and sample_ratio is not None
                 and predicted_medcut < (gif_cfg.target_min_mb - gif_cfg.probe_skip_underflow_margin_mb)
