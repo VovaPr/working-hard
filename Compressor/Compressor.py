@@ -53,6 +53,10 @@ class GIFConfig:
     sample_probe_enabled: bool = True
     sample_probe_max_frames: int = 36
     sample_probe_min_frames: int = 12
+    # For dense palettes, neighbor-based predictions can under-estimate MEDIANCUT output.
+    # Use sample probe in these high-risk cases to skip costly bad first MEDIANCUT runs.
+    sample_probe_neighbor_min_palette: int = 220
+    sample_probe_neighbor_min_frames: int = 180
     fast_direct_accept_enabled: bool = True
     fast_direct_min_frames: int = 120
     probe_skip_overflow_margin: float = 1.08
@@ -85,7 +89,7 @@ class GIFConfig:
 
 @dataclass(frozen=True)
 class AppConfig:
-    version: str = "Compressor v8.59.36"
+    version: str = "Compressor v8.59.37"
     root_folder_path: str = r"C:\other\lab\pic"
     stats_file: str = field(default_factory=lambda: os.path.join(os.path.dirname(__file__), "CompressorStats.JSON"))
     stats_soft_limit_mb: float = 50.0
@@ -1829,11 +1833,19 @@ def balanced_compress_gif(input_path, gif_cfg=CONFIG.gif):
                 sample_probe_done = True
                 continue
 
+            source_is_neighbor = source.startswith("neighbor stats")
+            should_probe_formula = source == "formula (conservative)"
+            should_probe_neighbor = (
+                source_is_neighbor
+                and colors_first >= gif_cfg.sample_probe_neighbor_min_palette
+                and total_frames >= gif_cfg.sample_probe_neighbor_min_frames
+            )
+
             if (
                 gif_cfg.sample_probe_enabled
-                and source == "formula (conservative)"
                 and not sample_probe_done
-                and iteration <= 1
+                and iteration == 0
+                and (should_probe_formula or should_probe_neighbor)
                 and total_frames >= 120
             ):
                 probe_start = time.time()
@@ -1860,7 +1872,6 @@ def balanced_compress_gif(input_path, gif_cfg=CONFIG.gif):
             print(f"{VERSION} | -> Predicted MEDIANCUT={predicted_medcut:.2f} MB | scale={scale:.3f}")
             print(f"{VERSION} | -> source: {source}")
 
-            source_is_neighbor = source.startswith("neighbor stats")
 
             can_skip_first_med = (
                 iteration == 0
@@ -1870,13 +1881,13 @@ def balanced_compress_gif(input_path, gif_cfg=CONFIG.gif):
             )
             can_skip_probe_overflow = (
                 iteration == 0
-                and source == "formula (conservative)"
+                and (should_probe_formula or should_probe_neighbor)
                 and sample_ratio is not None
                 and predicted_medcut > gif_cfg.target_max_mb * gif_cfg.probe_skip_overflow_margin
             )
             can_skip_probe_underflow = (
                 iteration == 0
-                and source == "formula (conservative)"
+                and (should_probe_formula or should_probe_neighbor)
                 and sample_ratio is not None
                 and predicted_medcut < (gif_cfg.target_min_mb - gif_cfg.probe_skip_underflow_margin_mb)
             )
