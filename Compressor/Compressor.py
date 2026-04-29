@@ -60,6 +60,10 @@ class GIFConfig:
     fast_direct_accept_enabled: bool = True
     fast_direct_min_frames: int = 120
     probe_skip_overflow_margin: float = 1.08
+    # Tighter overflow skip margin used when sample probe was freshly measured (not carry-over).
+    # Sample probe is real MEDIANCUT on N frames, so its prediction is far more accurate than
+    # FASTOCTREE-based estimates — a 2% slack is enough to skip a 37-second full MEDIANCUT.
+    sample_probe_overflow_margin: float = 1.02
     probe_skip_underflow_margin_mb: float = 0.10
     process_pool_tasks_per_worker: int = 4
     fast_probe_hard_skip_ratio: float = 1.30
@@ -89,7 +93,7 @@ class GIFConfig:
 
 @dataclass(frozen=True)
 class AppConfig:
-    version: str = "Compressor v8.59.38"
+    version: str = "Compressor v8.59.39"
     root_folder_path: str = r"C:\other\lab\pic"
     stats_file: str = field(default_factory=lambda: os.path.join(os.path.dirname(__file__), "CompressorStats.JSON"))
     stats_soft_limit_mb: float = 50.0
@@ -1889,11 +1893,18 @@ def balanced_compress_gif(input_path, gif_cfg=CONFIG.gif):
                 and predicted_medcut > gif_cfg.target_max_mb * 1.20
                 and fast_size > gif_cfg.target_max_mb * 0.90
             )
+            # Use tight margin when sample probe was just measured this iteration (iter 0).
+            # Carry-over predictions (iter 1) keep the original conservative margin.
+            _fresh_probe = sample_probe_done and iteration == 0
+            _overflow_margin = (
+                gif_cfg.sample_probe_overflow_margin if _fresh_probe
+                else gif_cfg.probe_skip_overflow_margin
+            )
             can_skip_probe_overflow = (
                 iteration <= 1
                 and (should_probe_formula or should_probe_neighbor)
                 and sample_ratio is not None
-                and predicted_medcut > gif_cfg.target_max_mb * gif_cfg.probe_skip_overflow_margin
+                and predicted_medcut > gif_cfg.target_max_mb * _overflow_margin
             )
             can_skip_probe_underflow = (
                 iteration <= 1
