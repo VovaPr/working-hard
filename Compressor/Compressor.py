@@ -93,7 +93,7 @@ class GIFConfig:
 
 @dataclass(frozen=True)
 class AppConfig:
-    version: str = "Compressor v8.59.39"
+    version: str = "Compressor v8.59.40"
     root_folder_path: str = r"C:\other\lab\pic"
     stats_file: str = field(default_factory=lambda: os.path.join(os.path.dirname(__file__), "CompressorStats.JSON"))
     stats_soft_limit_mb: float = 50.0
@@ -211,6 +211,10 @@ def scan_media_candidates(root_folder_path):
             if os.path.getsize(file_path) > TARGET_SIZE:
                 jpg_paths.append(file_path)
             continue
+        if lower.endswith('.jfif'):
+            # Always convert JFIF to JPG so this extension is not skipped by the pipeline.
+            jpg_paths.append(file_path)
+            continue
         if not lower.endswith('.webp'):
             continue
         size_bytes = os.path.getsize(file_path)
@@ -303,6 +307,43 @@ def process_images(png_paths, jpg_paths, static_webp_paths):
     for jpg_path in jpg_paths:
         worked = True
         try:
+            ext = os.path.splitext(jpg_path)[1].lower()
+            if ext == ".jfif":
+                converted_jpg_path = os.path.join(
+                    os.path.dirname(jpg_path),
+                    os.path.splitext(os.path.basename(jpg_path))[0] + ".jpg",
+                )
+                with Image.open(jpg_path) as img:
+                    jfif_size = os.path.getsize(jpg_path)
+                    prepared = ImageOps.exif_transpose(img)
+                    rgb = prepared.convert("RGB")
+                    rgb.save(
+                        converted_jpg_path,
+                        "JPEG",
+                        quality=100,
+                        optimize=True,
+                        progressive=True,
+                        subsampling=0,
+                    )
+
+                converted_size = os.path.getsize(converted_jpg_path)
+                print(f"{VERSION} | Converted JFIF -> JPG: {converted_jpg_path}")
+                print(
+                    f"{VERSION} | Converted size={converted_size/1024:.2f} KB | "
+                    f"Target={TARGET_SIZE/1024:.0f} KB"
+                )
+                os.remove(jpg_path)
+
+                if converted_size <= TARGET_SIZE:
+                    print(
+                        f"{VERSION} | ✅ JFIF success: {jfif_size/1024:.2f} KB -> "
+                        f"{converted_size/1024:.2f} KB (no further compression needed)"
+                    )
+                    continue
+
+                compress_until_under_target(converted_jpg_path)
+                continue
+
             compress_until_under_target(jpg_path)
         except Exception as e:
             print(f"{VERSION} | Error processing JPG {jpg_path}: {e}")
