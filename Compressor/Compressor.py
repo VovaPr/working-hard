@@ -60,10 +60,9 @@ class GIFConfig:
     fast_direct_accept_enabled: bool = True
     fast_direct_min_frames: int = 120
     probe_skip_overflow_margin: float = 1.08
-    # Tighter overflow skip margin used when sample probe was freshly measured (not carry-over).
-    # Sample probe is real MEDIANCUT on N frames, so its prediction is far more accurate than
-    # FASTOCTREE-based estimates — a 2% slack is enough to skip a 37-second full MEDIANCUT.
-    sample_probe_overflow_margin: float = 1.02
+    # Tight overflow skip margin used when sample probe was freshly measured.
+    # Sample probe is real MEDIANCUT on N frames, so it can use near-target thresholding.
+    sample_probe_overflow_margin: float = 1.005
     probe_skip_underflow_margin_mb: float = 0.10
     process_pool_tasks_per_worker: int = 4
     fast_probe_hard_skip_ratio: float = 1.30
@@ -93,7 +92,7 @@ class GIFConfig:
 
 @dataclass(frozen=True)
 class AppConfig:
-    version: str = "Compressor v8.59.40"
+    version: str = "Compressor v8.59.41"
     root_folder_path: str = r"C:\other\lab\pic"
     stats_file: str = field(default_factory=lambda: os.path.join(os.path.dirname(__file__), "CompressorStats.JSON"))
     stats_soft_limit_mb: float = 50.0
@@ -1884,6 +1883,7 @@ def balanced_compress_gif(input_path, gif_cfg=CONFIG.gif):
                 and colors_first >= gif_cfg.sample_probe_neighbor_min_palette
                 and total_frames >= gif_cfg.sample_probe_neighbor_min_frames
             )
+            sample_probe_measured_this_iter = False
 
             if (
                 gif_cfg.sample_probe_enabled
@@ -1901,6 +1901,7 @@ def balanced_compress_gif(input_path, gif_cfg=CONFIG.gif):
                     workers,
                     gif_cfg,
                 )
+                sample_probe_measured_this_iter = True
                 sample_probe_done = True
                 probe_elapsed = time.time() - probe_start
                 if sample_ratio and sample_ratio > 1.0:
@@ -1934,9 +1935,9 @@ def balanced_compress_gif(input_path, gif_cfg=CONFIG.gif):
                 and predicted_medcut > gif_cfg.target_max_mb * 1.20
                 and fast_size > gif_cfg.target_max_mb * 0.90
             )
-            # Use tight margin when sample probe was just measured this iteration (iter 0).
-            # Carry-over predictions (iter 1) keep the original conservative margin.
-            _fresh_probe = sample_probe_done and iteration == 0
+            # Use tight margin when sample probe was measured in this exact iteration.
+            # Carry-over predictions keep the original conservative margin.
+            _fresh_probe = sample_probe_measured_this_iter and sample_ratio is not None
             _overflow_margin = (
                 gif_cfg.sample_probe_overflow_margin if _fresh_probe
                 else gif_cfg.probe_skip_overflow_margin
