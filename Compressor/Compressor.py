@@ -1205,12 +1205,12 @@ def _run_fastoctree_trial(
     """
     _resize_start = time.time()
     resized_frames = resize_frames(frames_raw, width, height, scale)
-    print(f"{VERSION} | [diag] resize scale={scale:.3f} elapsed={time.time() - _resize_start:.2f}s")
+    print(f"{VERSION} | [gif.diag] resize scale={scale:.3f} elapsed={time.time() - _resize_start:.2f}s")
     key = _scale_key(scale)
 
     if key in fast_cache:
         fast_size = fast_cache[key]["size"]
-        print(f"{VERSION} | Step {iteration+1}.0 ({stage_tag}, cached) | FASTOCTREE={fast_size:.2f} MB")
+        print(f"{VERSION} | [gif.fast] Step {iteration+1}.0 ({stage_tag}, cached) | FASTOCTREE={fast_size:.2f} MB")
         return resized_frames, fast_size, fast_cache[key].get("bytes")
 
     step_start = time.time()
@@ -1218,7 +1218,7 @@ def _run_fastoctree_trial(
     buf_fast, fast_size = save_gif(frames_fast, durations, optimize=False)
     fast_cache[key] = {"size": fast_size, "bytes": buf_fast.getvalue()}
     step_elapsed = time.time() - step_start
-    print(f"{VERSION} | Step {iteration+1}.0 ({stage_tag}) | FASTOCTREE={fast_size:.2f} MB | finished in {step_elapsed:.2f} sec")
+    print(f"{VERSION} | [gif.fast] Step {iteration+1}.0 ({stage_tag}) | FASTOCTREE={fast_size:.2f} MB | finished in {step_elapsed:.2f} sec")
     return resized_frames, fast_size, fast_cache[key]["bytes"]
 
 
@@ -1302,7 +1302,7 @@ def _next_scale(scale, low_scale, high_scale, med_cache, target_mid, max_step_ra
 
 def _print_gif_result_header(input_path, total_frames, palette_count, width, height):
     print(
-        f"{VERSION} | file: {os.path.basename(input_path)} "
+        f"{VERSION} | [gif.result] file: {os.path.basename(input_path)} "
         f"| Frames={total_frames} | Palette={palette_count} | WxH={width}x{height}"
     )
 
@@ -1326,21 +1326,21 @@ def balanced_compress_gif(input_path, gif_cfg=CONFIG.gif):
         colors_first = len(img.getcolors(maxcolors=256 * 256) or [])
         palette_limit = min(colors_first + gif_cfg.extra_palette, 256)
 
-        print(f"{VERSION} | Starting file: {input_path}")
+        print(f"{VERSION} | [gif.prepare] Starting file: {input_path}")
         init_size = os.path.getsize(input_path) / (1024 * 1024)
-        print(f"{VERSION} | Initial Size: {init_size:.2f} MB | Frames={total_frames} | Palette={colors_first} | WxH={width}x{height}")
+        print(f"{VERSION} | [gif.prepare] Initial Size: {init_size:.2f} MB | Frames={total_frames} | Palette={colors_first} | WxH={width}x{height}")
 
         _decode_start = time.time()
         for frame in ImageSequence.Iterator(img):
             frames_raw.append(frame.convert("RGB"))
             durations.append(frame.info.get("duration", 100))
-        print(f"{VERSION} | [diag] decode={time.time() - _decode_start:.2f}s ({total_frames} frames)")
+        print(f"{VERSION} | [gif.diag] decode={time.time() - _decode_start:.2f}s ({total_frames} frames)")
 
     # ⚠️ DO NOT CHANGE workers — MEDIANCUT is memory-intensive per frame;
     # using more than half CPUs causes RAM pressure and slows down the whole system.
     # DO NOT add dynamic scaling, boost, or any frame-count-based adjustments here.
     workers = max(1, (os.cpu_count() or 4) // 2)
-    print(f"{VERSION} | Using {workers} workers for {total_frames} frames")
+    print(f"{VERSION} | [gif.prepare] Using {workers} workers for {total_frames} frames")
     debug_log(f"log_level={LOG_LEVEL} | max_safe_iterations={gif_cfg.max_safe_iterations}")
 
     target_mid = (gif_cfg.target_min_mb + gif_cfg.target_max_mb) / 2
@@ -1359,8 +1359,8 @@ def balanced_compress_gif(input_path, gif_cfg=CONFIG.gif):
         gif_cfg,
     )
 
-    print(f"{VERSION} | Prediction source: {source}")
-    print(f"{VERSION} | -> initial scale={scale:.3f}")
+    print(f"{VERSION} | [gif.predict] Prediction source: {source}")
+    print(f"{VERSION} | [gif.predict] -> initial scale={scale:.3f}")
 
     state = GifRuntimeState(
         scale=scale,
@@ -1376,7 +1376,7 @@ def balanced_compress_gif(input_path, gif_cfg=CONFIG.gif):
 
     _pool_start = time.time()
     with ProcessPoolExecutor(max_workers=workers) as executor:
-        print(f"{VERSION} | [diag] pool_startup={time.time() - _pool_start:.2f}s")
+        print(f"{VERSION} | [gif.diag] pool_startup={time.time() - _pool_start:.2f}s")
         for iteration in range(gif_cfg.max_safe_iterations):
             print(f"{VERSION} | [gif.fast] Iteration {iteration+1}: FASTOCTREE trial")
             resized_frames, fast_size, fast_bytes = _run_fastoctree_trial(
@@ -1474,10 +1474,10 @@ def balanced_compress_gif(input_path, gif_cfg=CONFIG.gif):
                 if not (state.low_scale < suggested_scale < state.high_scale):
                     suggested_scale = (state.low_scale + state.high_scale) / 2
                 print(
-                    f"{VERSION} | Early hard-skip on iter 1: FASTOCTREE={fast_size:.2f} MB "
+                    f"{VERSION} | [gif.skip] Early hard-skip on iter 1: FASTOCTREE={fast_size:.2f} MB "
                     f"(>{gif_cfg.fast_probe_hard_skip_ratio:.2f}x target_max)"
                 )
-                print(f"{VERSION} | -> next scale={suggested_scale:.3f}")
+                print(f"{VERSION} | [gif.skip] -> next scale={suggested_scale:.3f}")
                 state.scale = suggested_scale
                 continue
 
@@ -1514,7 +1514,7 @@ def balanced_compress_gif(input_path, gif_cfg=CONFIG.gif):
                     if calibrated_prediction > predicted_medcut:
                         predicted_medcut = calibrated_prediction
                     print(
-                        f"{VERSION} | Probe ratio (sample)={state.sample_ratio:.3f} "
+                        f"{VERSION} | [gif.predict] Probe ratio (sample)={state.sample_ratio:.3f} "
                         f"-> calibrated MEDIANCUT={predicted_medcut:.2f} MB "
                         f"| finished in {probe_elapsed:.2f} sec"
                     )
@@ -1526,12 +1526,12 @@ def balanced_compress_gif(input_path, gif_cfg=CONFIG.gif):
                 if calibrated_prediction > predicted_medcut:
                     predicted_medcut = calibrated_prediction
                     print(
-                        f"{VERSION} | Probe carry-over ratio={state.sample_ratio:.3f} "
+                        f"{VERSION} | [gif.predict] Probe carry-over ratio={state.sample_ratio:.3f} "
                         f"-> adjusted MEDIANCUT={predicted_medcut:.2f} MB"
                     )
 
-            print(f"{VERSION} | -> Predicted MEDIANCUT={predicted_medcut:.2f} MB | scale={state.scale:.3f}")
-            print(f"{VERSION} | -> source: {source}")
+            print(f"{VERSION} | [gif.predict] -> Predicted MEDIANCUT={predicted_medcut:.2f} MB | scale={state.scale:.3f}")
+            print(f"{VERSION} | [gif.predict] -> source: {source}")
 
             skip_decision = build_skip_decision(
                 iteration=iteration,
@@ -1557,8 +1557,8 @@ def balanced_compress_gif(input_path, gif_cfg=CONFIG.gif):
                 state.high_scale = skip_decision.next_high_scale
                 if skip_decision.mark_formula_extra_skip_used:
                     state.formula_extra_skip_used = True
-                print(f"{VERSION} | Skipping MEDIANCUT on iter {iteration+1} ({skip_decision.reason})")
-                print(f"{VERSION} | -> next scale={skip_decision.suggested_scale:.3f}")
+                print(f"{VERSION} | [gif.skip] Skipping MEDIANCUT on iter {iteration+1} ({skip_decision.reason})")
+                print(f"{VERSION} | [gif.skip] -> next scale={skip_decision.suggested_scale:.3f}")
                 state.scale = skip_decision.suggested_scale
                 continue
 
@@ -1571,7 +1571,7 @@ def balanced_compress_gif(input_path, gif_cfg=CONFIG.gif):
             if can_pre_correct:
                 debug_log("decision=pre_correction | reason=iter0/formula_or_delta and prediction well below target")
                 state.scale *= 0.92
-                print(f"{VERSION} | Pre-correction (iter 0) -> scale={state.scale:.3f}")
+                print(f"{VERSION} | [gif.adjust] Pre-correction (iter 0) -> scale={state.scale:.3f}")
                 resized_frames, fast_size, fast_bytes = _run_fastoctree_trial(
                     iteration=iteration,
                     scale=state.scale,
@@ -1605,7 +1605,7 @@ def balanced_compress_gif(input_path, gif_cfg=CONFIG.gif):
                 if state.low_scale < suggested_scale < state.high_scale and abs(suggested_scale - state.scale) > 0.005:
                     debug_log("decision=soft_pre_shrink | reason=formula near upper target bound")
                     state.scale = suggested_scale
-                    print(f"{VERSION} | Soft pre-shrink (iter 0) -> scale={state.scale:.3f}")
+                    print(f"{VERSION} | [gif.adjust] Soft pre-shrink (iter 0) -> scale={state.scale:.3f}")
                     resized_frames, fast_size, fast_bytes = _run_fastoctree_trial(
                         iteration=iteration,
                         scale=state.scale,
@@ -1657,7 +1657,7 @@ def balanced_compress_gif(input_path, gif_cfg=CONFIG.gif):
                     debug_log("decision=micro_adjust | reason=neighbor_stats and fast below 0.9*target_mid")
                     state.scale = adj_scale
                     state.micro_adjust_used = True
-                    print(f"{VERSION} | Micro-adjusting scale -> {state.scale:.3f}")
+                    print(f"{VERSION} | [gif.adjust] Micro-adjusting scale -> {state.scale:.3f}")
                     resized_frames, fast_size, fast_bytes = _run_fastoctree_trial(
                         iteration=iteration,
                         scale=state.scale,
@@ -1674,7 +1674,7 @@ def balanced_compress_gif(input_path, gif_cfg=CONFIG.gif):
             if scale_key in state.med_cache:
                 print(f"{VERSION} | [gif.medcut] Use cached MEDIANCUT result")
                 med_size, med_bytes = state.med_cache[scale_key]
-                print(f"{VERSION} | Step {iteration+1}.1 (cached) | MEDIANCUT={med_size:.2f} MB")
+                print(f"{VERSION} | [gif.medcut] Step {iteration+1}.1 (cached) | MEDIANCUT={med_size:.2f} MB")
                 debug_log(f"cache=med | hit | key={scale_key}")
             else:
                 print(f"{VERSION} | [gif.medcut] Execute MEDIANCUT")
@@ -1691,7 +1691,7 @@ def balanced_compress_gif(input_path, gif_cfg=CONFIG.gif):
                 med_bytes = buf_med.getvalue()
                 state.med_cache[scale_key] = (med_size, med_bytes)
                 step_elapsed = time.time() - step_start
-                print(f"{VERSION} | Step {iteration+1}.1 | MEDIANCUT={med_size:.2f} MB | finished in {step_elapsed:.2f} sec")
+                print(f"{VERSION} | [gif.medcut] Step {iteration+1}.1 | MEDIANCUT={med_size:.2f} MB | finished in {step_elapsed:.2f} sec")
                 debug_log(f"cache=med | miss | key={scale_key}")
 
             pred_error = med_size - predicted_medcut
@@ -1707,7 +1707,7 @@ def balanced_compress_gif(input_path, gif_cfg=CONFIG.gif):
             if state.stall_count >= 2:
                 debug_log("stall_guard=active | repeated (scale, med_size) signature")
 
-            print(f"{VERSION} | Delta vs FASTOCTREE = {med_size - fast_size:+.2f} MB")
+            print(f"{VERSION} | [gif.compare] Delta vs FASTOCTREE = {med_size - fast_size:+.2f} MB")
 
             can_try_temporal_preserve = (
                 gif_cfg.temporal_preserve_enabled
@@ -1737,7 +1737,7 @@ def balanced_compress_gif(input_path, gif_cfg=CONFIG.gif):
                     )
                     t_elapsed = time.time() - t_start
                     print(
-                        f"{VERSION} | Temporal preserve probe | keep_every={keep_every} "
+                        f"{VERSION} | [gif.temporal] Temporal preserve probe | keep_every={keep_every} "
                         f"| frames {len(frames_raw)}->{len(t_frames)} | MEDIANCUT={t_med_size:.2f} MB "
                         f"| finished in {t_elapsed:.2f} sec"
                     )
@@ -1767,7 +1767,7 @@ def balanced_compress_gif(input_path, gif_cfg=CONFIG.gif):
                         state.scale = min(1.0, state.scale / 0.92)
                         state.temporal_applied = True
                         print(
-                            f"{VERSION} | Temporal preserve enabled -> continue with original WxH and "
+                            f"{VERSION} | [gif.temporal] Temporal preserve enabled -> continue with original WxH and "
                             f"{total_frames} frames"
                         )
                         continue
@@ -1809,7 +1809,7 @@ def balanced_compress_gif(input_path, gif_cfg=CONFIG.gif):
                     )
                     q_elapsed = time.time() - q_start
                     print(
-                        f"{VERSION} | Quality retry (temporal) | keep_every={keep_every} "
+                        f"{VERSION} | [gif.temporal] Quality retry (temporal) | keep_every={keep_every} "
                         f"| frames {len(frames_raw)}->{len(q_frames)} | MEDIANCUT={q_med_size:.2f} MB "
                         f"| finished in {q_elapsed:.2f} sec"
                     )
@@ -1835,7 +1835,7 @@ def balanced_compress_gif(input_path, gif_cfg=CONFIG.gif):
                 stats_mgr.save_stats(palette_limit, width, height, total_frames, fast_size, med_size, state.scale)
                 with open(input_path, "wb") as f:
                     f.write(med_bytes)
-                print(f"{VERSION} | [diag] save+stats={time.time() - _save_start:.2f}s")
+                print(f"{VERSION} | [gif.diag] save+stats={time.time() - _save_start:.2f}s")
                 elapsed = time.time() - started_at
                 _print_gif_result_header(input_path, total_frames, colors_first, width, height)
                 print(
@@ -1873,11 +1873,11 @@ def balanced_compress_gif(input_path, gif_cfg=CONFIG.gif):
                 max_step_ratio=gif_cfg.max_scale_step_ratio,
                 )
             print(f"{VERSION} | [gif.next-scale] Compute next scale")
-            print(f"{VERSION} | Next scale={new_scale:.3f}")
-            print(f"{VERSION} | -> bracket: low={state.low_scale:.3f}, high={state.high_scale:.3f}")
+            print(f"{VERSION} | [gif.next-scale] Next scale={new_scale:.3f}")
+            print(f"{VERSION} | [gif.next-scale] -> bracket: low={state.low_scale:.3f}, high={state.high_scale:.3f}")
             state.scale = new_scale
 
-    print(f"{VERSION} | Failed to converge after {gif_cfg.max_safe_iterations} iterations")
+    print(f"{VERSION} | [gif.fail] Failed to converge after {gif_cfg.max_safe_iterations} iterations")
 
 
 def process_gifs(gif_paths, animated_webp_paths):
@@ -1888,14 +1888,14 @@ def process_gifs(gif_paths, animated_webp_paths):
         try:
             balanced_compress_gif(file_path)
         except Exception as e:
-            print(f"{VERSION} | Error processing {file_path}: {e}")
+            print(f"{VERSION} | [gif.error] Error processing {file_path}: {e}")
 
     for file_path in animated_webp_paths:
         worked = True
         try:
             compress_animated_webp_until_under_target(file_path)
         except Exception as e:
-            print(f"{VERSION} | Error processing {file_path}: {e}")
+            print(f"{VERSION} | [gif.error] Error processing {file_path}: {e}")
 
     return worked
 
@@ -1904,7 +1904,7 @@ if __name__ == "__main__":
     from pipeline_runner import PipelineApi, run_pipeline
 
     print(
-        "Compressor 2.0.1 | Formats: PNG/JPG/static WEBP -> <= 999 KB; "
+        "Compressor 2.0.1 | [core.banner] Formats: PNG/JPG/static WEBP -> <= 999 KB; "
         "GIF/animated WEBP -> 13.5-14.99 MB"
     )
 

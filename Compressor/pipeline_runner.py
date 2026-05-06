@@ -68,7 +68,7 @@ def run_pipeline(api: PipelineApi):
     _phase_if_debug(api, "core.gif", f"Done in {gifs_elapsed:.2f}s")
 
     print(
-        f"{api.version} | ✅ Scan complete: scan_media={api.run_metrics['scan_sec']:.2f} sec "
+        f"{api.version} | [core.scan] ✅ Scan complete: scan_media={api.run_metrics['scan_sec']:.2f} sec "
         f"(png={api.run_metrics['png_candidates']}, "
         f"jpg={api.run_metrics['jpg_candidates']}, "
         f"static_webp={api.run_metrics['static_webp_candidates']}, "
@@ -80,7 +80,7 @@ def run_pipeline(api: PipelineApi):
         stats_size_mb = os.path.getsize(api.stats_file) / (1024 * 1024)
         if stats_size_mb >= api.stats_soft_limit_mb:
             print(
-                f"{api.version} | ⚠ Stats note: {os.path.basename(api.stats_file)} is {stats_size_mb:.2f} MB "
+                f"{api.version} | [core.stats] ⚠ Stats note: {os.path.basename(api.stats_file)} is {stats_size_mb:.2f} MB "
                 f"(>= {api.stats_soft_limit_mb:.0f} MB). Consider rotating/compressing stats."
             )
     except OSError:
@@ -92,10 +92,10 @@ def run_pipeline(api: PipelineApi):
         _phase_if_debug(api, "core.stats", "Run stats compressor")
         subprocess.run(["python", stats_script, api.stats_file], check=True)
     except Exception as exc:
-        print(f"{api.version} | StatsCompressor failed: {exc}")
+        print(f"{api.version} | [core.stats] StatsCompressor failed: {exc}")
     stats_elapsed = time.time() - stats_started_at
 
-    print(f"{api.version} | stats_compressor={stats_elapsed:.2f} sec")
+    print(f"{api.version} | [core.stats] stats_compressor={stats_elapsed:.2f} sec")
 
     total_files_in_dir = 0
     try:
@@ -103,18 +103,18 @@ def run_pipeline(api: PipelineApi):
             stats_data = json.load(f)
         gif_count = len(stats_data.get("gif_stats", []))
         webp_count = len(stats_data.get("webp_animated_stats", []))
-        print(f"{api.version} | GIF — {gif_count} items | WEBP — {webp_count} items")
+        print(f"{api.version} | [core.stats] GIF — {gif_count} items | WEBP — {webp_count} items")
         total_files_in_dir = _count_files_in_dir(api.root_folder_path)
     except Exception as exc:
-        print(f"{api.version} | Stats count error: {exc}")
+        print(f"{api.version} | [core.stats] Stats count error: {exc}")
 
     print(
-        f"{api.version} | ℹ️ Scan time: {api.run_metrics['scan_sec']:.2f} sec. "
+        f"{api.version} | [core.summary] ℹ️ Scan time: {api.run_metrics['scan_sec']:.2f} sec. "
         f"Total number of files in folder: {total_files_in_dir}"
     )
-    print(f"{api.version} | ✅ All images converted/compressed and oversized GIFs, Webps compressed.")
+    print(f"{api.version} | [core.summary] ✅ All images converted/compressed and oversized GIFs, Webps compressed.")
     elapsed = time.time() - api.start_time
     print(
-        f"{api.version} | Total execution time: {elapsed:.2f} sec. "
+        f"{api.version} | [core.summary] Total execution time: {elapsed:.2f} sec. "
         f"Current time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
     )
