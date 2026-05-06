@@ -2428,6 +2428,27 @@
       "scale": 0.6646565727078142,
       "timestamp": 1778094915.582197,
       "count": 2
+    },
+    {
+      "palette": 256,
+      "width": 650,
+      "height": 366,
+      "frames": 139,
+      "fast_size": 10.594664573669434,
+      "med_size": 14.043769836425781,
+      "scale": 0.7613413282440753,
+      "timestamp": 1778095612.4364505
+    },
+    {
+      "palette": 256,
+      "width": 450,
+      "height": 800,
+      "frames": 106,
+      "fast_size": 8.490619659423828,
+      "med_size": 13.979887962341309,
+      "scale": 0.7610439940707963,
+      "timestamp": 1778095825.4432666,
+      "count": 2
     }
   ],
   "webp_animated_stats": [
