@@ -10,6 +10,7 @@ import os, sys, time, io, json, subprocess
 from datetime import datetime
 from dataclasses import dataclass, field
 from concurrent.futures import ProcessPoolExecutor
+from static_pipeline import process_images as static_process_images
 from compressor_gif_runtime import (
     GifRuntimeState,
     build_skip_decision,
@@ -243,125 +244,14 @@ def scan_media_candidates(root_folder_path):
 
 def process_images(png_paths, jpg_paths, static_webp_paths):
     """Image block: convert PNG to JPG, compress oversized JPG/JPEG, and compress static WEBP."""
-    # Main entry point for processing all static images (PNG, JPG, static WEBP)
-    # Handles conversion, compression, and error reporting for each file type
-    worked = False
-
-    for png_path in png_paths:
-        worked = True
-        jpg_path = os.path.join(os.path.dirname(png_path), os.path.splitext(os.path.basename(png_path))[0] + ".jpg")
-
-        try:
-            with Image.open(png_path) as img:
-                png_size = os.path.getsize(png_path)
-                print(f"{VERSION} | Initial PNG: {png_path}")
-                print(f"{VERSION} | WxH={img.width}x{img.height} | Size={png_size/1024:.2f} KB")
-
-                # Preserve orientation and metadata while converting PNG alpha to an RGB background.
-                prepared = ImageOps.exif_transpose(img)
-                icc_profile = img.info.get("icc_profile")
-                exif = img.getexif()
-                exif_bytes = None
-                if exif:
-                    exif[274] = 1
-                    exif_bytes = exif.tobytes()
-
-                has_alpha = (
-                    "A" in prepared.getbands()
-                    or (prepared.mode == "P" and "transparency" in prepared.info)
-                )
-                if has_alpha:
-                    rgba = prepared.convert("RGBA")
-                    bg = Image.new("RGB", rgba.size, (255, 255, 255))
-                    bg.paste(rgba, mask=rgba.getchannel("A"))
-                    jpg_image = bg
-                else:
-                    jpg_image = prepared.convert("RGB")
-
-                save_kwargs = {
-                    "quality": 100,
-                    "optimize": True,
-                    "progressive": True,
-                    "subsampling": 0,
-                }
-                if icc_profile:
-                    save_kwargs["icc_profile"] = icc_profile
-                if exif_bytes:
-                    save_kwargs["exif"] = exif_bytes
-
-                jpg_image.save(jpg_path, "JPEG", **save_kwargs)
-
-            jpg_size = os.path.getsize(jpg_path)
-            print(f"{VERSION} | Converted PNG -> JPG: {jpg_path}")
-            print(f"{VERSION} | Converted size={jpg_size/1024:.2f} KB | Target={TARGET_SIZE/1024:.0f} KB")
-
-            os.remove(png_path)
-
-            if jpg_size <= TARGET_SIZE:
-                print(
-                    f"{VERSION} | ✅ PNG success: {png_size/1024:.2f} KB -> {jpg_size/1024:.2f} KB "
-                    "(no further compression needed)"
-                )
-                continue
-
-            compress_until_under_target(jpg_path)
-        except UnidentifiedImageError:
-            print(f"{VERSION} | Skipped corrupted PNG: {png_path}")
-        except Exception as e:
-            print(f"{VERSION} | Error processing PNG {png_path}: {e}")
-
-    for jpg_path in jpg_paths:
-        worked = True
-        try:
-            ext = os.path.splitext(jpg_path)[1].lower()
-            if ext == ".jfif":
-                converted_jpg_path = os.path.join(
-                    os.path.dirname(jpg_path),
-                    os.path.splitext(os.path.basename(jpg_path))[0] + ".jpg",
-                )
-                with Image.open(jpg_path) as img:
-                    jfif_size = os.path.getsize(jpg_path)
-                    prepared = ImageOps.exif_transpose(img)
-                    rgb = prepared.convert("RGB")
-                    rgb.save(
-                        converted_jpg_path,
-                        "JPEG",
-                        quality=100,
-                        optimize=True,
-                        progressive=True,
-                        subsampling=0,
-                    )
-
-                converted_size = os.path.getsize(converted_jpg_path)
-                print(f"{VERSION} | Converted JFIF -> JPG: {converted_jpg_path}")
-                print(
-                    f"{VERSION} | Converted size={converted_size/1024:.2f} KB | "
-                    f"Target={TARGET_SIZE/1024:.0f} KB"
-                )
-                os.remove(jpg_path)
-
-                if converted_size <= TARGET_SIZE:
-                    print(
-                        f"{VERSION} | ✅ JFIF success: {jfif_size/1024:.2f} KB -> "
-                        f"{converted_size/1024:.2f} KB (no further compression needed)"
-                    )
-                    continue
-
-                compress_until_under_target(converted_jpg_path)
-                continue
-
-            compress_until_under_target(jpg_path)
-        except Exception as e:
-            print(f"{VERSION} | Error processing JPG {jpg_path}: {e}")
-
-    for webp_path in static_webp_paths:
-        worked = True
-        try:
-            compress_static_webp_until_under_target(webp_path)
-        except Exception as e:
-            print(f"{VERSION} | Error processing WEBP {webp_path}: {e}")
-
-    return worked
+    return static_process_images(
+        png_paths,
+        jpg_paths,
+        static_webp_paths,
+        version=VERSION,
+        target_size=TARGET_SIZE,
+        gif_cfg=CONFIG.gif,
+    )
 
 
 def compress_until_under_target(path, target_size=TARGET_SIZE):
@@ -2309,6 +2199,7 @@ if __name__ == "__main__":
             scan_media_candidates=scan_media_candidates,
             process_images=process_images,
             process_gifs=process_gifs,
+            log_level=LOG_LEVEL,
         )
     )
 
