@@ -10,6 +10,13 @@ import os, sys, time, io, json, subprocess
 from datetime import datetime
 from dataclasses import dataclass, field
 from concurrent.futures import ProcessPoolExecutor
+from compressor_gif_runtime import (
+    GifRuntimeState,
+    build_skip_decision,
+    is_in_preferred_range,
+    is_in_target_range,
+    predict_medcut_size,
+)
 
 # Third-party imports
 from PIL import Image, ImageOps, ImageSequence, UnidentifiedImageError
@@ -1695,155 +1702,6 @@ def _print_gif_result_header(input_path, total_frames, palette_count, width, hei
     )
 
 
-@dataclass
-class GifRuntimeState:
-    scale: float
-    low_scale: float
-    high_scale: float
-    fast_cache: dict
-    med_cache: dict
-    micro_adjust_used: bool = False
-    stall_count: int = 0
-    last_signature: tuple = None
-    temporal_applied: bool = False
-    quality_retry_done: bool = False
-    sample_probe_done: bool = False
-    sample_ratio: float = None
-    formula_extra_skip_used: bool = False
-
-
-@dataclass(frozen=True)
-class SkipDecision:
-    should_skip: bool
-    reason: str = ""
-    suggested_scale: float = 0.0
-    next_low_scale: float = 0.0
-    next_high_scale: float = 0.0
-    mark_formula_extra_skip_used: bool = False
-
-
-def _is_in_target_range(size_mb, gif_cfg):
-    return gif_cfg.target_min_mb <= size_mb <= gif_cfg.target_max_mb + 0.005
-
-
-def _is_in_preferred_range(size_mb, gif_cfg):
-    return gif_cfg.preferred_min_mb <= size_mb <= gif_cfg.preferred_max_mb
-
-
-def _apply_step_cap(current_scale, suggested_scale, max_step_ratio):
-    max_step = current_scale * max_step_ratio
-    if abs(suggested_scale - current_scale) <= max_step:
-        return suggested_scale
-    direction = 1 if suggested_scale > current_scale else -1
-    return current_scale + direction * max_step
-
-
-def _clamp_to_bracket(suggested_scale, low_scale, high_scale):
-    if low_scale < suggested_scale < high_scale:
-        return suggested_scale
-    return (low_scale + high_scale) / 2
-
-
-def _predict_medcut_size(stats_mgr, palette_limit, width, height, total_frames, fast_size, bias_factor, source, gif_cfg):
-    predicted = stats_mgr.predict_mediancut(
-        palette_limit,
-        width,
-        height,
-        total_frames,
-        fast_size,
-        bias_factor,
-    )
-    predicted = _clamp_prediction(predicted, fast_size)
-    if source == "stats":
-        predicted *= gif_cfg.stats_source_bias_extra
-        predicted = _clamp_prediction(predicted, fast_size)
-    return predicted
-
-
-def _build_skip_decision(
-    iteration,
-    source,
-    source_is_neighbor,
-    should_probe_formula,
-    should_probe_neighbor,
-    sample_ratio,
-    sample_probe_measured_this_iter,
-    predicted_medcut,
-    fast_size,
-    current_scale,
-    low_scale,
-    high_scale,
-    target_mid,
-    formula_extra_skip_used,
-    gif_cfg,
-):
-    fresh_probe = sample_probe_measured_this_iter and sample_ratio is not None
-    overflow_margin = (
-        gif_cfg.sample_probe_overflow_margin if fresh_probe
-        else gif_cfg.probe_skip_overflow_margin
-    )
-
-    can_skip_first_med = (
-        iteration == 0
-        and (source == "formula (conservative)" or source_is_neighbor)
-        and predicted_medcut > gif_cfg.target_max_mb * 1.20
-        and fast_size > gif_cfg.target_max_mb * 0.90
-    )
-    can_skip_probe_overflow = (
-        iteration <= 1
-        and (should_probe_formula or should_probe_neighbor)
-        and sample_ratio is not None
-        and predicted_medcut > gif_cfg.target_max_mb * overflow_margin
-    )
-    can_skip_probe_underflow = (
-        iteration <= 1
-        and (should_probe_formula or should_probe_neighbor)
-        and sample_ratio is not None
-        and predicted_medcut < (gif_cfg.target_min_mb - gif_cfg.probe_skip_underflow_margin_mb)
-    )
-    can_skip_formula_extra = (
-        iteration == 1
-        and source == "formula (conservative)"
-        and not formula_extra_skip_used
-        and sample_ratio is not None
-        and predicted_medcut > gif_cfg.target_max_mb * 1.10
-        and fast_size > gif_cfg.target_min_mb * 0.90
-    )
-
-    should_skip = (
-        can_skip_first_med
-        or can_skip_probe_overflow
-        or can_skip_probe_underflow
-        or can_skip_formula_extra
-    )
-    if not should_skip:
-        return SkipDecision(False)
-
-    next_low_scale = low_scale
-    next_high_scale = high_scale
-    if can_skip_probe_underflow:
-        next_low_scale = current_scale
-        next_high_scale = max(next_high_scale, 4.0)
-    elif can_skip_probe_overflow:
-        next_high_scale = current_scale
-    else:
-        next_high_scale = current_scale
-
-    suggested_scale = current_scale * (target_mid / predicted_medcut) ** 0.5 if predicted_medcut > 0 else current_scale
-    suggested_scale = _apply_step_cap(current_scale, suggested_scale, max_step_ratio=0.45)
-    suggested_scale = _clamp_to_bracket(suggested_scale, next_low_scale, next_high_scale)
-
-    reason = "predicted too large" if (can_skip_first_med or can_skip_probe_overflow or can_skip_formula_extra) else "predicted too small"
-    return SkipDecision(
-        should_skip=True,
-        reason=reason,
-        suggested_scale=suggested_scale,
-        next_low_scale=next_low_scale,
-        next_high_scale=next_high_scale,
-        mark_formula_extra_skip_used=can_skip_formula_extra,
-    )
-
-
 def balanced_compress_gif(input_path, gif_cfg=CONFIG.gif):
     """
     Core GIF compression algorithm. Iteratively finds the right scale factor:
@@ -1928,7 +1786,7 @@ def balanced_compress_gif(input_path, gif_cfg=CONFIG.gif):
                 stage_tag="base",
             )
 
-            fast_in_preferred = _is_in_preferred_range(fast_size, gif_cfg)
+            fast_in_preferred = is_in_preferred_range(fast_size, gif_cfg)
             # ⚠️ IMMUTABLE: fast_in_target MUST check against sacred bounds [13.5, 14.99] MB.
             # Never expand, contract, or relax this range. Period.
             fast_in_target = gif_cfg.target_min_mb <= fast_size <= gif_cfg.target_max_mb
@@ -1966,7 +1824,7 @@ def balanced_compress_gif(input_path, gif_cfg=CONFIG.gif):
                 )
                 return
 
-            predicted_medcut = _predict_medcut_size(
+            predicted_medcut = predict_medcut_size(
                 stats_mgr=stats_mgr,
                 palette_limit=palette_limit,
                 width=width,
@@ -1976,6 +1834,7 @@ def balanced_compress_gif(input_path, gif_cfg=CONFIG.gif):
                 bias_factor=bias_factor,
                 source=source,
                 gif_cfg=gif_cfg,
+                clamp_prediction_fn=_clamp_prediction,
             )
 
             # Hard early skip: if first FASTOCTREE is far above target,
@@ -2007,7 +1866,8 @@ def balanced_compress_gif(input_path, gif_cfg=CONFIG.gif):
                 if abs(suggested_scale - state.scale) > max_skip_step:
                     direction = 1 if suggested_scale > state.scale else -1
                     suggested_scale = state.scale + direction * max_skip_step
-                suggested_scale = _clamp_to_bracket(suggested_scale, state.low_scale, state.high_scale)
+                if not (state.low_scale < suggested_scale < state.high_scale):
+                    suggested_scale = (state.low_scale + state.high_scale) / 2
                 print(
                     f"{VERSION} | Early hard-skip on iter 1: FASTOCTREE={fast_size:.2f} MB "
                     f"(>{gif_cfg.fast_probe_hard_skip_ratio:.2f}x target_max)"
@@ -2068,7 +1928,7 @@ def balanced_compress_gif(input_path, gif_cfg=CONFIG.gif):
             print(f"{VERSION} | -> Predicted MEDIANCUT={predicted_medcut:.2f} MB | scale={state.scale:.3f}")
             print(f"{VERSION} | -> source: {source}")
 
-            skip_decision = _build_skip_decision(
+            skip_decision = build_skip_decision(
                 iteration=iteration,
                 source=source,
                 source_is_neighbor=source_is_neighbor,
@@ -2152,7 +2012,7 @@ def balanced_compress_gif(input_path, gif_cfg=CONFIG.gif):
                         fast_cache=state.fast_cache,
                         stage_tag="soft-corrected",
                     )
-                    predicted_medcut = _predict_medcut_size(
+                    predicted_medcut = predict_medcut_size(
                         stats_mgr=stats_mgr,
                         palette_limit=palette_limit,
                         width=width,
@@ -2162,6 +2022,7 @@ def balanced_compress_gif(input_path, gif_cfg=CONFIG.gif):
                         bias_factor=bias_factor,
                         source=source,
                         gif_cfg=gif_cfg,
+                        clamp_prediction_fn=_clamp_prediction,
                     )
                     print(
                         f"{VERSION} | -> Updated predicted MEDIANCUT={predicted_medcut:.2f} MB "
@@ -2276,7 +2137,7 @@ def balanced_compress_gif(input_path, gif_cfg=CONFIG.gif):
                         f"| finished in {t_elapsed:.2f} sec"
                     )
 
-                    if _is_in_target_range(t_med_size, gif_cfg):
+                    if is_in_target_range(t_med_size, gif_cfg):
                         # ⚠️ Result falls within sacred bounds. Safe to accept.
                         stats_mgr.save_stats(palette_limit, width, height, total_frames, fast_size, t_med_size, 1.0)
                         with open(input_path, "wb") as f:
@@ -2308,11 +2169,11 @@ def balanced_compress_gif(input_path, gif_cfg=CONFIG.gif):
 
             in_preferred_corridor = (
                 iteration >= 1
-                and _is_in_preferred_range(med_size, gif_cfg)
+                and is_in_preferred_range(med_size, gif_cfg)
             )
             # ⚠️ IMMUTABLE TARGET RANGE: [13.5 MB, 14.99 MB]
             # This is the contract. Results MUST fit here. Never relax, widen, or negotiate.
-            in_target = _is_in_target_range(med_size, gif_cfg)
+            in_target = is_in_target_range(med_size, gif_cfg)
 
             can_try_quality_retry = (
                 gif_cfg.quality_retry_small_res_enabled
@@ -2349,7 +2210,7 @@ def balanced_compress_gif(input_path, gif_cfg=CONFIG.gif):
                     )
 
                     # ⚠️ SACRED BOUNDARIES: Result must be within [13.5, 14.99] MB. Never relax.
-                    if _is_in_target_range(q_med_size, gif_cfg):
+                    if is_in_target_range(q_med_size, gif_cfg):
                         stats_mgr.save_stats(palette_limit, width, height, total_frames, fast_size, q_med_size, 1.0)
                         with open(input_path, "wb") as f:
                             f.write(q_buf.getvalue())
