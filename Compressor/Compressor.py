@@ -7,7 +7,7 @@ What this compressor does:
 """
 
 # Single source of truth for the application version.
-APP_VERSION = "2.0.3"
+APP_VERSION = "2.0.4"
 
 # Standard library imports
 import os, sys, time, io, json, subprocess
@@ -872,6 +872,36 @@ def balanced_compress_gif(input_path, gif_cfg=CONFIG.gif):
                 print(f"{VERSION} | [gif.skip] Skipping MEDIANCUT on iter {iteration+1} ({skip_decision.reason})")
                 print(f"{VERSION} | [gif.skip] -> next scale={skip_decision.suggested_scale:.3f}")
                 state.scale = skip_decision.suggested_scale
+                continue
+
+            # For formula-driven cold starts, avoid expensive MEDIANCUT when both FAST and
+            # predicted MEDIANCUT are clearly below target_min; upscale first and retry FAST.
+            can_formula_under_target_skip = (
+                source == "formula (conservative)"
+                and predicted_medcut < (gif_cfg.target_min_mb - 0.35)
+                and fast_size < gif_cfg.target_min_mb
+                and iteration < (gif_cfg.max_safe_iterations - 1)
+            )
+            if can_formula_under_target_skip:
+                state.low_scale = max(state.low_scale, state.scale)
+                suggested_scale = state.scale * (target_mid / max(predicted_medcut, 0.1)) ** 0.5
+
+                max_up_step_ratio = min(0.30, gif_cfg.max_scale_step_ratio * 2.0)
+                max_up_step = state.scale * max_up_step_ratio
+                if abs(suggested_scale - state.scale) > max_up_step:
+                    direction = 1 if suggested_scale > state.scale else -1
+                    suggested_scale = state.scale + direction * max_up_step
+
+                if not (state.low_scale < suggested_scale < state.high_scale):
+                    suggested_scale = (state.low_scale + state.high_scale) / 2
+
+                print(f"{VERSION} | [gif.skip] Skip decision accepted")
+                print(
+                    f"{VERSION} | [gif.skip] Skipping MEDIANCUT on iter {iteration+1} "
+                    "(formula under-target pre-adjust)"
+                )
+                print(f"{VERSION} | [gif.skip] -> next scale={suggested_scale:.3f}")
+                state.scale = suggested_scale
                 continue
 
             can_pre_correct = (
