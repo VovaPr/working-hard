@@ -1904,7 +1904,7 @@ if __name__ == "__main__":
     from pipeline_runner import PipelineApi, run_pipeline
 
     print(
-        "Compressor 2.0.1 | Formats: PNG/JPG/static WEBP -> <= 999 KB; "
+        "Compressor 2.0.1 | Formats: PNG/JPG/JPEG/JFIF/static WEBP -> <= 999 KB; "
         "GIF/animated WEBP -> 13.5-14.99 MB"
     )
 
