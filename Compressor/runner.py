@@ -86,13 +86,13 @@ def run_pipeline(api: PipelineApi):
     except OSError:
         pass
 
-    stats_script = os.path.join(os.path.dirname(__file__), "StatsCompressor.py")
+    stats_script = os.path.join(os.path.dirname(__file__), "stats_compressor.py")
     stats_started_at = time.time()
     try:
         _phase_if_debug(api, "core.stats", "Run stats compressor")
         subprocess.run(["python", stats_script, api.stats_file], check=True)
     except Exception as exc:
-        print(f"{api.version} | StatsCompressor failed: {exc}")
+        print(f"{api.version} | stats_compressor failed: {exc}")
     stats_elapsed = time.time() - stats_started_at
 
     total_files_in_dir = 0

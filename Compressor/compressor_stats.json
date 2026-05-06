@@ -2449,6 +2449,16 @@
       "scale": 0.7610439940707963,
       "timestamp": 1778095825.4432666,
       "count": 2
+    },
+    {
+      "palette": 254,
+      "width": 600,
+      "height": 338,
+      "frames": 193,
+      "fast_size": 8.825934410095215,
+      "med_size": 14.298297882080078,
+      "scale": 0.6866939947185795,
+      "timestamp": 1778096472.201409
     }
   ],
   "webp_animated_stats": [

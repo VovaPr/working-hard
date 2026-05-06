@@ -75,7 +75,7 @@ if __name__ == "__main__":
     if args.path:
         stats_file = args.path
     else:
-        stats_file = os.path.join(os.path.dirname(__file__), "CompressorStats.JSON")
+        stats_file = os.path.join(os.path.dirname(__file__), "compressor_stats.json")
 
     compressor = StatsCompressor(stats_file)
 

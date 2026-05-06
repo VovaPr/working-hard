@@ -7,7 +7,7 @@ What this compressor does:
 """
 
 # Single source of truth for the application version.
-APP_VERSION = "2.0.10"
+APP_VERSION = "2.0.11"
 
 # Standard library imports
 import os, sys, time, subprocess
@@ -98,7 +98,7 @@ class GIFConfig:
 class AppConfig:
     version: str = APP_VERSION
     root_folder_path: str = r"C:\other\lab\pic"
-    stats_file: str = field(default_factory=lambda: os.path.join(os.path.dirname(__file__), "CompressorStats.JSON"))
+    stats_file: str = field(default_factory=lambda: os.path.join(os.path.dirname(__file__), "compressor_stats.json"))
     stats_soft_limit_mb: float = 50.0
     jpg: JPGConfig = field(default_factory=JPGConfig)
     gif: GIFConfig = field(default_factory=GIFConfig)
