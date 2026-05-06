@@ -126,6 +126,161 @@ def _print_gif_result_header(input_path, total_frames, palette_count, width, hei
     )
 
 
+def _decode_gif_input(input_path, gif_cfg, version):
+    frames_raw, durations = [], []
+    with Image.open(input_path) as img:
+        width, height = img.size
+        total_frames = img.n_frames
+        colors_first = len(img.getcolors(maxcolors=256 * 256) or [])
+        palette_limit = min(colors_first + gif_cfg.extra_palette, 256)
+
+        print(f"{version} | [gif.prepare] Starting file: {input_path}")
+        init_size = os.path.getsize(input_path) / (1024 * 1024)
+        print(f"{version} | [gif.prepare] Initial Size: {init_size:.2f} MB | Frames={total_frames} | Palette={colors_first} | WxH={width}x{height}")
+
+        decode_start = time.time()
+        for frame in ImageSequence.Iterator(img):
+            frames_raw.append(frame.convert("RGB"))
+            durations.append(frame.info.get("duration", 100))
+        print(f"{version} | [gif.diag] decode={time.time() - decode_start:.2f}s ({total_frames} frames)")
+
+    return {
+        "frames_raw": frames_raw,
+        "durations": durations,
+        "width": width,
+        "height": height,
+        "total_frames": total_frames,
+        "colors_first": colors_first,
+        "palette_limit": palette_limit,
+        "init_size": init_size,
+    }
+
+
+def _save_success_result(
+    *,
+    input_path,
+    output_bytes,
+    init_size,
+    result_size,
+    iteration,
+    started_at,
+    total_frames,
+    colors_first,
+    width,
+    height,
+    version,
+    success_label,
+):
+    with open(input_path, "wb") as f:
+        f.write(output_bytes)
+    elapsed = time.time() - started_at
+    _print_gif_result_header(input_path, total_frames, colors_first, width, height, version)
+    print(
+        f"{version} | ✅ Success ({success_label}): {init_size:.2f} MB -> {result_size:.2f} MB "
+        f"(after {iteration+1} iterations, {elapsed:.2f} sec total)"
+    )
+
+
+def _try_fast_accept(
+    *,
+    iteration,
+    fast_size,
+    fast_bytes,
+    state,
+    stats_mgr,
+    palette_limit,
+    width,
+    height,
+    total_frames,
+    colors_first,
+    input_path,
+    init_size,
+    started_at,
+    gif_cfg,
+    version,
+):
+    fast_in_preferred = is_in_preferred_range(fast_size, gif_cfg)
+    fast_in_target = gif_cfg.target_min_mb <= fast_size <= gif_cfg.target_max_mb
+
+    can_fast_direct_accept = (
+        gif_cfg.fast_direct_accept_enabled
+        and iteration == 0
+        and fast_in_target
+        and total_frames >= gif_cfg.fast_direct_min_frames
+    )
+    if can_fast_direct_accept:
+        fast_saved_size = len(fast_bytes) / (1024 * 1024)
+        stats_mgr.save_stats(palette_limit, width, height, total_frames, fast_size, fast_saved_size, state.scale)
+        _save_success_result(
+            input_path=input_path,
+            output_bytes=fast_bytes,
+            init_size=init_size,
+            result_size=fast_saved_size,
+            iteration=iteration,
+            started_at=started_at,
+            total_frames=total_frames,
+            colors_first=colors_first,
+            width=width,
+            height=height,
+            version=version,
+            success_label="fast-direct",
+        )
+        return True
+
+    if iteration >= 1 and fast_in_preferred:
+        fast_saved_size = len(fast_bytes) / (1024 * 1024)
+        stats_mgr.save_stats(palette_limit, width, height, total_frames, fast_size, fast_size, state.scale)
+        _save_success_result(
+            input_path=input_path,
+            output_bytes=fast_bytes,
+            init_size=init_size,
+            result_size=fast_saved_size,
+            iteration=iteration,
+            started_at=started_at,
+            total_frames=total_frames,
+            colors_first=colors_first,
+            width=width,
+            height=height,
+            version=version,
+            success_label="fast",
+        )
+        return True
+
+    return False
+
+
+def _finalize_medcut_success(
+    *,
+    input_path,
+    stats_mgr,
+    palette_limit,
+    width,
+    height,
+    total_frames,
+    colors_first,
+    fast_size,
+    med_size,
+    med_bytes,
+    state,
+    init_size,
+    iteration,
+    started_at,
+    version,
+):
+    print(f"{version} | [gif.finalize] Save final result and stats")
+    save_start = time.time()
+    stats_mgr.save_stats(palette_limit, width, height, total_frames, fast_size, med_size, state.scale)
+    with open(input_path, "wb") as f:
+        f.write(med_bytes)
+    print(f"{version} | [gif.diag] save+stats={time.time() - save_start:.2f}s")
+    elapsed = time.time() - started_at
+    _print_gif_result_header(input_path, total_frames, colors_first, width, height, version)
+    print(
+        f"{version} | ✅ Success: {init_size:.2f} MB -> {med_size:.2f} MB "
+        f"(after {iteration+1} iterations, {elapsed:.2f} sec total)"
+    )
+
+
 def balanced_compress_gif(
     input_path,
     *,
@@ -144,22 +299,15 @@ def balanced_compress_gif(
         elif log_level == "DEBUG":
             print(f"{version} | Debug | {message}")
 
-    frames_raw, durations = [], []
-    with Image.open(input_path) as img:
-        width, height = img.size
-        total_frames = img.n_frames
-        colors_first = len(img.getcolors(maxcolors=256 * 256) or [])
-        palette_limit = min(colors_first + gif_cfg.extra_palette, 256)
-
-        print(f"{version} | [gif.prepare] Starting file: {input_path}")
-        init_size = os.path.getsize(input_path) / (1024 * 1024)
-        print(f"{version} | [gif.prepare] Initial Size: {init_size:.2f} MB | Frames={total_frames} | Palette={colors_first} | WxH={width}x{height}")
-
-        decode_start = time.time()
-        for frame in ImageSequence.Iterator(img):
-            frames_raw.append(frame.convert("RGB"))
-            durations.append(frame.info.get("duration", 100))
-        print(f"{version} | [gif.diag] decode={time.time() - decode_start:.2f}s ({total_frames} frames)")
+    decoded = _decode_gif_input(input_path, gif_cfg, version)
+    frames_raw = decoded["frames_raw"]
+    durations = decoded["durations"]
+    width = decoded["width"]
+    height = decoded["height"]
+    total_frames = decoded["total_frames"]
+    colors_first = decoded["colors_first"]
+    palette_limit = decoded["palette_limit"]
+    init_size = decoded["init_size"]
 
     workers = max(1, (os.cpu_count() or 4) // 2)
     print(f"{version} | [gif.prepare] Using {workers} workers for {total_frames} frames")
@@ -214,39 +362,24 @@ def balanced_compress_gif(
                 stage_tag="base",
             )
 
-            fast_in_preferred = is_in_preferred_range(fast_size, gif_cfg)
-            fast_in_target = gif_cfg.target_min_mb <= fast_size <= gif_cfg.target_max_mb
-
-            can_fast_direct_accept = (
-                gif_cfg.fast_direct_accept_enabled
-                and iteration == 0
-                and fast_in_target
-                and total_frames >= gif_cfg.fast_direct_min_frames
+            accepted_fast = _try_fast_accept(
+                iteration=iteration,
+                fast_size=fast_size,
+                fast_bytes=fast_bytes,
+                state=state,
+                stats_mgr=stats_mgr,
+                palette_limit=palette_limit,
+                width=width,
+                height=height,
+                total_frames=total_frames,
+                colors_first=colors_first,
+                input_path=input_path,
+                init_size=init_size,
+                started_at=started_at,
+                gif_cfg=gif_cfg,
+                version=version,
             )
-            if can_fast_direct_accept:
-                fast_saved_size = len(fast_bytes) / (1024 * 1024)
-                stats_mgr.save_stats(palette_limit, width, height, total_frames, fast_size, fast_saved_size, state.scale)
-                with open(input_path, "wb") as f:
-                    f.write(fast_bytes)
-                elapsed = time.time() - started_at
-                _print_gif_result_header(input_path, total_frames, colors_first, width, height, version)
-                print(
-                    f"{version} | ✅ Success (fast-direct): {init_size:.2f} MB -> {fast_saved_size:.2f} MB "
-                    f"(after {iteration+1} iterations, {elapsed:.2f} sec total)"
-                )
-                return
-
-            if iteration >= 1 and fast_in_preferred:
-                fast_saved_size = len(fast_bytes) / (1024 * 1024)
-                stats_mgr.save_stats(palette_limit, width, height, total_frames, fast_size, fast_size, state.scale)
-                with open(input_path, "wb") as f:
-                    f.write(fast_bytes)
-                elapsed = time.time() - started_at
-                _print_gif_result_header(input_path, total_frames, colors_first, width, height, version)
-                print(
-                    f"{version} | ✅ Success (fast): {init_size:.2f} MB -> {fast_saved_size:.2f} MB "
-                    f"(after {iteration+1} iterations, {elapsed:.2f} sec total)"
-                )
+            if accepted_fast:
                 return
 
             predicted_medcut = predict_medcut_size(
@@ -666,17 +799,22 @@ def balanced_compress_gif(
                         return
 
             if in_preferred_corridor or in_target:
-                print(f"{version} | [gif.finalize] Save final result and stats")
-                save_start = time.time()
-                stats_mgr.save_stats(palette_limit, width, height, total_frames, fast_size, med_size, state.scale)
-                with open(input_path, "wb") as f:
-                    f.write(med_bytes)
-                print(f"{version} | [gif.diag] save+stats={time.time() - save_start:.2f}s")
-                elapsed = time.time() - started_at
-                _print_gif_result_header(input_path, total_frames, colors_first, width, height, version)
-                print(
-                    f"{version} | ✅ Success: {init_size:.2f} MB -> {med_size:.2f} MB "
-                    f"(after {iteration+1} iterations, {elapsed:.2f} sec total)"
+                _finalize_medcut_success(
+                    input_path=input_path,
+                    stats_mgr=stats_mgr,
+                    palette_limit=palette_limit,
+                    width=width,
+                    height=height,
+                    total_frames=total_frames,
+                    colors_first=colors_first,
+                    fast_size=fast_size,
+                    med_size=med_size,
+                    med_bytes=med_bytes,
+                    state=state,
+                    init_size=init_size,
+                    iteration=iteration,
+                    started_at=started_at,
+                    version=version,
                 )
                 return
 
