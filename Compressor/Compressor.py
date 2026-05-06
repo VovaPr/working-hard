@@ -7,16 +7,27 @@ What this compressor does:
 """
 
 # Single source of truth for the application version.
-APP_VERSION = "2.0.4"
+APP_VERSION = "2.0.5"
 
 # Standard library imports
-import os, sys, time, io, json, subprocess
+import os, sys, time, subprocess
 from datetime import datetime
 from dataclasses import dataclass, field
 from concurrent.futures import ProcessPoolExecutor
 from static_pipeline import process_images as static_process_images
 from scan_pipeline import scan_media_candidates as scan_media_candidates_impl
 from webp_pipeline import compress_animated_webp_until_under_target as webp_compress_animated
+from gif_stats import CompressorStatsManager
+from gif_ops import (
+    _clamp_prediction,
+    _estimate_ratio_sample,
+    _scale_key,
+    compress_med_cut,
+    process_frame_fast_octree,
+    resize_frames,
+    save_gif,
+    temporal_reduce,
+)
 from compressor_gif_runtime import (
     GifRuntimeState,
     build_skip_decision,
@@ -185,319 +196,6 @@ def compress_animated_webp_until_under_target(path, gif_cfg=CONFIG.gif):
     )
 
 
-class CompressorStatsManager:
-    """
-    Persists successful compression history in a JSON file and provides
-    methods to predict the optimal scale for a new file:
-      - average_scale_recent: recency-weighted mean (recent runs weighted higher)
-      - neighbor_scale:        mean across similar files (close size/resolution/frames)
-      - regression_coefficients: linear regression fast_size → med_size
-      - predict_mediancut:    estimates post-MEDIANCUT size before running it
-    Used for GIF compression to improve initial scale prediction and reduce trial/error.
-    """
-    def __init__(self, stats_file):
-        self.stats_file = stats_file
-        self.stats = []
-        self._load_stats()
-
-    def _load_stats(self):
-        if os.path.exists(self.stats_file):
-            try:
-                with open(self.stats_file, "r", encoding="utf-8-sig") as f:
-                    data = json.load(f)
-                    if isinstance(data, dict):
-                        self.stats = data.get("gif_stats", [])
-                    else:
-                        self.stats = data
-            except Exception:
-                self.stats = []
-        else:
-            self.stats = []
-
-    def save_stats(self, palette, width, height, frames, fast_size, med_size, scale):
-        entry = {
-            "palette": palette,
-            "width": width,
-            "height": height,
-            "frames": frames,
-            "fast_size": fast_size,
-            "med_size": med_size,
-            "scale": scale,
-            "timestamp": time.time(),
-        }
-        self.stats.append(entry)
-        try:
-            data = {}
-            if os.path.exists(self.stats_file):
-                with open(self.stats_file, "r", encoding="utf-8-sig") as f:
-                    existing = json.load(f)
-                    if isinstance(existing, dict):
-                        data = existing
-                    else:
-                        data = {"gif_stats": existing}
-
-            data["gif_stats"] = self.stats
-            with open(self.stats_file, "w", encoding="utf-8") as f:
-                json.dump(data, f, indent=2)
-        except Exception as e:
-            print(f"{VERSION} | Warning: failed to save stats: {e}")
-
-    def _filter_matches(self, palette, width, height, frames):
-        return [
-            entry
-            for entry in self.stats
-            if entry["palette"] == palette
-            and entry["width"] == width
-            and entry["height"] == height
-            and entry["frames"] == frames
-        ]
-
-    def average_scale(self, palette, width, height, frames):
-        matches = self._filter_matches(palette, width, height, frames)
-        scales = [entry["scale"] for entry in matches if entry.get("scale", 0) > 0]
-        return (sum(scales) / len(scales)) if scales else None
-
-    def average_scale_recent(self, palette, width, height, frames, decay_half_life=86400.0):
-        """Recency-weighted average scale (recent runs count more; half-life = 1 day by default)."""
-        matches = self._filter_matches(palette, width, height, frames)
-        now = time.time()
-        weighted_sum = 0.0
-        weight_total = 0.0
-        for entry in matches:
-            if entry.get("scale", 0) <= 0:
-                continue
-            age = now - entry.get("timestamp", now)
-            weight = 2.0 ** (-age / decay_half_life)
-            weighted_sum += entry["scale"] * weight
-            weight_total += weight
-        return (weighted_sum / weight_total) if weight_total > 0 else None
-
-    def find_delta(self, palette, width, height, frames):
-        matches = self._filter_matches(palette, width, height, frames)
-        deltas = [entry["med_size"] - entry["fast_size"] for entry in matches]
-        return (sum(deltas) / len(deltas)) if deltas else None
-
-    def predict_mediancut(self, palette, width, height, frames, fast_size, bias_factor):
-        coeff = self.regression_coefficients(palette, width, height, frames)
-        if coeff is not None:
-            a, b = coeff
-            return a * fast_size + b
-
-        delta_avg = self.find_delta(palette, width, height, frames)
-        if delta_avg is not None:
-            return fast_size + delta_avg * bias_factor
-
-        return fast_size * bias_factor
-
-    def regression_coefficients(self, palette, width, height, frames, max_diff_ratio=0.15):
-        xs, ys = [], []
-        for entry in self.stats:
-            if abs(entry["palette"] - palette) > 8:
-                continue
-            if abs(entry["width"] - width) / width > max_diff_ratio:
-                continue
-            if abs(entry["height"] - height) / height > max_diff_ratio:
-                continue
-            if abs(entry["frames"] - frames) / frames > max_diff_ratio:
-                continue
-            xs.append(entry.get("fast_size", 0))
-            ys.append(entry.get("med_size", 0))
-
-        if len(xs) < 2:
-            return None
-
-        x_mean = sum(xs) / len(xs)
-        y_mean = sum(ys) / len(ys)
-        num = sum((x - x_mean) * (y - y_mean) for x, y in zip(xs, ys))
-        den = sum((x - x_mean) ** 2 for x in xs)
-        if den == 0:
-            return None
-
-        a = num / den
-        b = y_mean - a * x_mean
-        return a, b
-
-    def neighbor_scale(self, palette, width, height, frames, max_diff_ratio=0.15):
-        profile = self.neighbor_scale_profile(palette, width, height, frames, max_diff_ratio=max_diff_ratio)
-        return profile["scale"] if profile else None
-
-    def neighbor_scale_profile(self, palette, width, height, frames, max_diff_ratio=0.15):
-        candidates = []
-        weights = []
-        for entry in self.stats:
-            if abs(entry["palette"] - palette) > 8:
-                continue
-
-            width_diff = abs(entry["width"] - width) / width
-            height_diff = abs(entry["height"] - height) / height
-            frame_diff = abs(entry["frames"] - frames) / frames
-            palette_diff = abs(entry["palette"] - palette) / 32.0
-
-            if width_diff <= max_diff_ratio and height_diff <= max_diff_ratio and frame_diff <= max_diff_ratio:
-                if entry.get("scale", 0) > 0:
-                    candidates.append(entry["scale"])
-                    distance = width_diff + height_diff + frame_diff + palette_diff
-                    weights.append(1.0 / (0.05 + distance))
-
-        if not candidates:
-            return None
-
-        weight_sum = sum(weights)
-        if weight_sum <= 0:
-            mean_scale = sum(candidates) / len(candidates)
-            variance = sum((s - mean_scale) ** 2 for s in candidates) / len(candidates)
-        else:
-            mean_scale = sum(s * w for s, w in zip(candidates, weights)) / weight_sum
-            variance = sum(w * (s - mean_scale) ** 2 for s, w in zip(candidates, weights)) / weight_sum
-
-        std_scale = variance ** 0.5
-        return {
-            "scale": mean_scale,
-            "std": std_scale,
-            "count": len(candidates),
-        }
-
-
-def process_frame_med_cut(args):
-    frame, palette_colors = args
-    q = frame.quantize(colors=palette_colors, method=Image.MEDIANCUT)
-    q.info.pop("transparency", None)
-    return q
-
-
-def process_frame_fast_octree(frame, palette_colors):
-    q = frame.quantize(colors=palette_colors, method=Image.FASTOCTREE)
-    q.info.pop("transparency", None)
-    return q
-
-
-def save_gif(frames, durations, optimize=False):
-    buf = io.BytesIO()
-    frames[0].save(
-        buf,
-        save_all=True,
-        append_images=frames[1:],
-        loop=0,
-        duration=durations,
-        disposal=2,
-        optimize=optimize,
-        format="GIF",
-    )
-    size_mb = len(buf.getvalue()) / (1024 * 1024)
-    return buf, size_mb
-
-
-def resize_frames(frames_raw, width, height, scale):
-    new_w = max(1, int(width * scale))
-    new_h = max(1, int(height * scale))
-    return [fr.resize((new_w, new_h), Image.LANCZOS) for fr in frames_raw]
-
-
-def _process_pool_chunksize(frame_count, workers, gif_cfg):
-    if frame_count <= 0:
-        return 1
-
-    tasks_per_worker = max(1, int(gif_cfg.process_pool_tasks_per_worker))
-    return max(1, frame_count // max(1, workers * tasks_per_worker))
-
-
-def _sample_probe_frame_limit(total_frames, gif_cfg):
-    max_frames = max(2, int(gif_cfg.sample_probe_max_frames))
-    min_frames = max(2, min(max_frames, int(gif_cfg.sample_probe_min_frames)))
-
-    if total_frames <= min_frames:
-        return total_frames
-
-    adaptive_frames = int((total_frames ** 0.5) * 1.25)
-    return max(min_frames, min(max_frames, adaptive_frames))
-
-
-def temporal_reduce(frames, durations, keep_every):
-    """
-    Keep every N-th frame while preserving playback speed by accumulating durations.
-    This reduces GIF size without changing frame dimensions.
-    """
-    if keep_every <= 1:
-        return frames, durations
-
-    reduced_frames = []
-    reduced_durations = []
-
-    bucket_duration = 0
-    bucket_start_idx = None
-
-    for idx, (frame, dur) in enumerate(zip(frames, durations)):
-        if bucket_start_idx is None:
-            bucket_start_idx = idx
-            bucket_duration = 0
-
-        bucket_duration += dur
-        is_bucket_end = ((idx - bucket_start_idx + 1) >= keep_every)
-
-        if is_bucket_end:
-            reduced_frames.append(frames[bucket_start_idx])
-            reduced_durations.append(max(20, bucket_duration))
-            bucket_start_idx = None
-            bucket_duration = 0
-
-    if bucket_start_idx is not None:
-        reduced_frames.append(frames[bucket_start_idx])
-        reduced_durations.append(max(20, bucket_duration))
-
-    return reduced_frames, reduced_durations
-
-
-def compress_med_cut(frames, durations, palette_colors, executor, workers, gif_cfg, final=False):
-    args = [(fr, palette_colors) for fr in frames]
-    chunksize = _process_pool_chunksize(len(frames), workers, gif_cfg)
-    frames_q = list(executor.map(process_frame_med_cut, args, chunksize=chunksize))
-    return save_gif(frames_q, durations, optimize=final)
-
-
-def _estimate_ratio_sample(frames, durations, palette_colors, executor, workers, gif_cfg):
-    """
-    Fast quality probe: estimate MEDIANCUT/FASTOCTREE size ratio on a frame sample.
-    Used to avoid expensive full MEDIANCUT passes at obviously bad scales.
-    """
-    total = len(frames)
-    if total < 2:
-        return None
-
-    sample_n = _sample_probe_frame_limit(total, gif_cfg)
-    stride = max(1, total // sample_n)
-    sample_frames = frames[::stride][:sample_n]
-    sample_durations = durations[::stride][:sample_n]
-
-    if len(sample_frames) < 2:
-        return None
-
-    sample_fast = [process_frame_fast_octree(fr, palette_colors) for fr in sample_frames]
-    _, fast_size = save_gif(sample_fast, sample_durations, optimize=False)
-    if fast_size <= 0:
-        return None
-
-    _, med_size = compress_med_cut(
-        sample_frames,
-        sample_durations,
-        palette_colors,
-        executor,
-        workers,
-        gif_cfg,
-        final=False,
-    )
-    return med_size / fast_size
-
-
-def _scale_key(scale):
-    return round(scale, 4)
-
-
-def _clamp_prediction(predicted_medcut, fast_size):
-    min_pred = max(fast_size * 0.3, 0.1)
-    max_pred = fast_size * 2.0
-    return max(min(predicted_medcut, max_pred), min_pred)
-
-
 def _run_fastoctree_trial(
     *,
     iteration,
@@ -658,7 +356,7 @@ def balanced_compress_gif(input_path, gif_cfg=CONFIG.gif):
     target_mid = (gif_cfg.target_min_mb + gif_cfg.target_max_mb) / 2
     bias_factor = 1.1 + 0.05 * (palette_limit / 256.0)
 
-    stats_mgr = CompressorStatsManager(STATS_FILE)
+    stats_mgr = CompressorStatsManager(STATS_FILE, VERSION)
     scale, source = _choose_initial_scale(
         stats_mgr,
         palette_limit,
