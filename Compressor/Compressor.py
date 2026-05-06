@@ -179,103 +179,6 @@ def process_images(png_paths, jpg_paths, static_webp_paths):
     )
 
 
-def compress_until_under_target(path, target_size=TARGET_SIZE):
-    """
-    Compress a JPEG file to fit under the target size by first reducing quality,
-    then resizing if necessary. The process minimizes quality loss while ensuring
-    the output file does not exceed the specified size.
-    """
-    local_version = VERSION
-    started_at = time.time()
-    min_quality_before_resize = 80
-
-    def _encode_jpeg_buffer(image, quality):
-        buf = io.BytesIO()
-        image.save(
-            buf,
-            "JPEG",
-            quality=quality,
-            optimize=True,
-            progressive=True,
-            subsampling=0,
-        )
-        return buf
-
-    def _find_best_quality_buffer(image, size_limit, q_min, q_max):
-        """Return the highest quality in [q_min, q_max] that fits size_limit."""
-        low = q_min
-        high = q_max
-        best_quality = None
-        best_buf = None
-        best_size = None
-
-        while low <= high:
-            mid = (low + high) // 2
-            mid_buf = _encode_jpeg_buffer(image, mid)
-            mid_size = len(mid_buf.getvalue())
-            if mid_size <= size_limit:
-                best_quality = mid
-                best_buf = mid_buf
-                best_size = mid_size
-                low = mid + 1
-            else:
-                high = mid - 1
-
-        return best_quality, best_buf, best_size
-
-    try:
-        with Image.open(path) as img:
-            img = img.convert("RGB")
-            resize_count = 0
-
-            init_size = os.path.getsize(path)
-            quality = 100
-            print(f"{local_version} | Initial File: {path}")
-            print(
-                f"{local_version} | WxH={img.width}x{img.height} | Quality={quality} "
-                f"| Size={init_size/1024:.2f} KB | Target={target_size/1024:.0f} KB"
-            )
-
-            if init_size <= target_size:
-                print(f"{local_version} | ✅ Already under target, no compression needed")
-                return
-
-            while True:
-                best_quality, best_buf, best_size = _find_best_quality_buffer(
-                    img,
-                    target_size,
-                    min_quality_before_resize,
-                    100,
-                )
-                if best_buf is not None:
-                    with open(path, "wb") as f:
-                        f.write(best_buf.getvalue())
-                    elapsed = time.time() - started_at
-                    print(
-                        f"{local_version} | ✅ Success: {init_size/1024:.2f} KB -> {best_size/1024:.2f} KB "
-                        f"| Quality={best_quality} | Resized {resize_count} times"
-                    )
-                    print(f"{local_version} | Finished in {elapsed:.2f} sec")
-                    return
-
-                # Even q_min does not fit target: reduce resolution slightly and retry quality search.
-                min_q_buf = _encode_jpeg_buffer(img, min_quality_before_resize)
-                min_q_size = len(min_q_buf.getvalue())
-                correction = (target_size / max(min_q_size, 1)) ** 0.5
-                correction = max(0.88, min(0.98, correction))
-                new_w = max(1, int(img.width * correction))
-                new_h = max(1, int(img.height * correction))
-                img = img.resize((new_w, new_h), Image.LANCZOS)
-                resize_count += 1
-                print(
-                    f"{local_version} | Step {resize_count} | Resized to {new_w}x{new_h}, "
-                    f"q{min_quality_before_resize} size={min_q_size/1024:.2f} KB"
-                )
-
-    except UnidentifiedImageError:
-        print(f"{local_version} | Skipped corrupted file: {path}")
-
-
 def _save_webp_frames(frames, durations, quality, method=6):
     buf = io.BytesIO()
     frames[0].save(
@@ -289,61 +192,6 @@ def _save_webp_frames(frames, durations, quality, method=6):
         method=method,
     )
     return buf
-
-
-def _compress_static_webp_like_jpg(
-    image,
-    target_size,
-    local_version,
-    gif_cfg,
-    started_at,
-):
-    """JPG-like loop for static WEBP: target by bytes, quality first, then resize."""
-    quality = 95
-    resize_count = 0
-    webp_method = max(0, min(6, gif_cfg.webp_static_method_default))
-
-    for step in range(1, gif_cfg.webp_static_max_iterations + 1):
-        quality = max(1, min(100, int(quality)))
-        buf = io.BytesIO()
-        image.save(buf, "WEBP", quality=quality, method=webp_method)
-        file_size = len(buf.getvalue())
-        elapsed = time.time() - started_at
-        print(
-            f"{local_version} | WEBP static step {step} | "
-            f"Size={file_size/1024:.2f} KB | q={quality} | method={webp_method} | elapsed={elapsed:.2f} sec"
-        )
-
-        if file_size <= target_size:
-            return buf, file_size, quality, resize_count, True
-
-        if elapsed >= gif_cfg.webp_file_max_seconds:
-            print(
-                f"{local_version} | ⚠ WEBP static timeout {elapsed:.2f} sec; "
-                f"file kept unchanged"
-            )
-            return None, None, quality, resize_count, False
-
-        correction = (target_size / file_size) ** 0.5 if file_size > 0 else 1.0
-        correction = max(0.75, min(1.25, correction))
-
-        if quality <= 50:
-            new_w = max(1, int(image.width * correction))
-            new_h = max(1, int(image.height * correction))
-            image = image.resize((new_w, new_h), Image.LANCZOS)
-            resize_count += 1
-            quality = 95
-            print(f"{local_version} | WEBP step {resize_count} | Resized to {new_w}x{new_h}, reset quality={quality}")
-            continue
-
-        quality = max(50, min(100, int(quality * correction)))
-        print(f"{local_version} | WEBP step {resize_count+1} | Quality={quality}")
-
-    print(
-        f"{local_version} | ⚠ WEBP static max iterations reached; "
-        f"file kept unchanged (could not hit target <= {target_size/1024:.0f} KB)"
-    )
-    return None, None, quality, resize_count, False
 
 
 def _compress_animated_webp(
@@ -741,57 +589,6 @@ def _compress_animated_webp(
     return
 
 
-def compress_static_webp_until_under_target(path, gif_cfg=CONFIG.gif):
-    """Static WEBP path: image/JPG-style logic with WEBP output preserved."""
-    # Handles static WEBP files using a similar approach as JPEG compression
-    # Converts to RGB/RGBA as needed, then compresses with quality/resize loop
-    local_version = VERSION
-    started_at = time.time()
-
-    try:
-        with Image.open(path) as img:
-            init_size = os.path.getsize(path)
-            frame_count = getattr(img, "n_frames", 1)
-            is_animated = bool(getattr(img, "is_animated", False) and frame_count > 1)
-            if is_animated:
-                return
-
-            print(f"{local_version} | Initial WEBP: {path}")
-            print(
-                f"{local_version} | WxH={img.width}x{img.height} | Animated=False "
-                f"| Frames={frame_count} | Size={init_size/1024:.2f} KB "
-                f"| Target={TARGET_SIZE/1024:.0f} KB"
-            )
-
-            if init_size <= TARGET_SIZE:
-                print(f"{local_version} | ✅ WEBP already in target range, no compression needed")
-                return
-
-            has_alpha = "A" in (img.mode or "")
-            image = img.convert("RGBA" if has_alpha else "RGB")
-            buf, file_size, quality, resize_count, success = _compress_static_webp_like_jpg(
-                image,
-                TARGET_SIZE,
-                local_version,
-                gif_cfg,
-                started_at,
-            )
-            if not success:
-                return
-
-            with open(path, "wb") as f:
-                f.write(buf.getvalue())
-            elapsed = time.time() - started_at
-            print(
-                f"{local_version} | ✅ WEBP success (static-jpg-like): {init_size/1024:.2f} KB -> {file_size/1024:.2f} KB "
-                f"| Quality={quality} | Resized {resize_count} times"
-            )
-            print(f"{local_version} | Finished in {elapsed:.2f} sec")
-
-    except UnidentifiedImageError:
-        print(f"{local_version} | Skipped corrupted WEBP: {path}")
-
-
 def compress_animated_webp_until_under_target(path, gif_cfg=CONFIG.gif):
     """
     Compresses animated WEBP files by extracting frames, applying a GIF-style compression strategy,
@@ -856,13 +653,6 @@ def compress_animated_webp_until_under_target(path, gif_cfg=CONFIG.gif):
 
     except UnidentifiedImageError:
         print(f"{local_version} | Skipped corrupted WEBP: {path}")
-
-
-def compress_webp_until_under_target(path, gif_cfg=CONFIG.gif):
-    """Backward-compatible dispatcher by WEBP type."""
-    if _is_animated_webp(path):
-        return compress_animated_webp_until_under_target(path, gif_cfg=gif_cfg)
-    return compress_static_webp_until_under_target(path, gif_cfg=gif_cfg)
 
 
 class AnimatedWebPStatsManager:
