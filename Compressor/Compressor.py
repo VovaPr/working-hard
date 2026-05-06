@@ -1854,6 +1854,7 @@ def balanced_compress_gif(input_path, gif_cfg=CONFIG.gif):
     Loop protection: one-shot micro_adjust + stall-guard on (scale, med_size) signature.
     """
     started_at = time.time()
+    print(f"{VERSION} | [gif.prepare] Read and decode frames")
 
     frames_raw, durations = [], []
     with Image.open(input_path) as img:
@@ -1914,6 +1915,7 @@ def balanced_compress_gif(input_path, gif_cfg=CONFIG.gif):
     with ProcessPoolExecutor(max_workers=workers) as executor:
         print(f"{VERSION} | [diag] pool_startup={time.time() - _pool_start:.2f}s")
         for iteration in range(gif_cfg.max_safe_iterations):
+            print(f"{VERSION} | [gif.fast] Iteration {iteration+1}: FASTOCTREE trial")
             resized_frames, fast_size, fast_bytes = _run_fastoctree_trial(
                 iteration=iteration,
                 scale=state.scale,
@@ -2084,6 +2086,7 @@ def balanced_compress_gif(input_path, gif_cfg=CONFIG.gif):
                 gif_cfg=gif_cfg,
             )
             if skip_decision.should_skip:
+                print(f"{VERSION} | [gif.skip] Skip decision accepted")
                 debug_log("decision=skip_first_med | reason=formula prediction well above target")
                 state.low_scale = skip_decision.next_low_scale
                 state.high_scale = skip_decision.next_high_scale
@@ -2203,10 +2206,12 @@ def balanced_compress_gif(input_path, gif_cfg=CONFIG.gif):
 
             scale_key = _scale_key(state.scale)
             if scale_key in state.med_cache:
+                print(f"{VERSION} | [gif.medcut] Use cached MEDIANCUT result")
                 med_size, med_bytes = state.med_cache[scale_key]
                 print(f"{VERSION} | Step {iteration+1}.1 (cached) | MEDIANCUT={med_size:.2f} MB")
                 debug_log(f"cache=med | hit | key={scale_key}")
             else:
+                print(f"{VERSION} | [gif.medcut] Execute MEDIANCUT")
                 step_start = time.time()
                 buf_med, med_size = compress_med_cut(
                     resized_frames,
@@ -2359,6 +2364,7 @@ def balanced_compress_gif(input_path, gif_cfg=CONFIG.gif):
             # ⚠️ FINAL CHECK: The only acceptable outcome is strictly within [13.5–14.99] MB.
             # in_target enforces this IMMUTABLE contract. If size is out of bounds, loop continues.
             if in_preferred_corridor or in_target:
+                print(f"{VERSION} | [gif.finalize] Save final result and stats")
                 _save_start = time.time()
                 stats_mgr.save_stats(palette_limit, width, height, total_frames, fast_size, med_size, state.scale)
                 with open(input_path, "wb") as f:
@@ -2400,6 +2406,7 @@ def balanced_compress_gif(input_path, gif_cfg=CONFIG.gif):
                 target_mid=target_mid,
                 max_step_ratio=gif_cfg.max_scale_step_ratio,
                 )
+            print(f"{VERSION} | [gif.next-scale] Compute next scale")
             print(f"{VERSION} | Next scale={new_scale:.3f}")
             print(f"{VERSION} | -> bracket: low={state.low_scale:.3f}, high={state.high_scale:.3f}")
             state.scale = new_scale
@@ -2428,84 +2435,19 @@ def process_gifs(gif_paths, animated_webp_paths):
 
 
 if __name__ == "__main__":
-    png_paths, jpg_paths, static_webp_paths, gif_paths, animated_webp_paths = scan_media_candidates(ROOT_FOLDER_PATH)
+    from pipeline_runner import PipelineApi, run_pipeline
 
-    images_started_at = time.time()
-    images_worked = process_images(png_paths, jpg_paths, static_webp_paths)
-
-    images_elapsed = time.time() - images_started_at
-
-    gifs_started_at = time.time()
-    gifs_worked = process_gifs(gif_paths, animated_webp_paths)
-    gifs_elapsed = time.time() - gifs_started_at
-
-    print(
-        f"{VERSION} | ✅ Scan complete: scan_media={RUN_METRICS['scan_sec']:.2f} sec "
-        f"(png={RUN_METRICS['png_candidates']}, "
-        f"jpg={RUN_METRICS['jpg_candidates']}, "
-        f"static_webp={RUN_METRICS['static_webp_candidates']}, "
-        f"gif={RUN_METRICS['gif_candidates']}, "
-        f"animated_webp={RUN_METRICS['animated_webp_candidates']})"
+    run_pipeline(
+        PipelineApi(
+            version=VERSION,
+            root_folder_path=ROOT_FOLDER_PATH,
+            stats_file=STATS_FILE,
+            stats_soft_limit_mb=CONFIG.stats_soft_limit_mb,
+            run_metrics=RUN_METRICS,
+            start_time=start_time,
+            scan_media_candidates=scan_media_candidates,
+            process_images=process_images,
+            process_gifs=process_gifs,
+        )
     )
-
-    # Note for maintenance: if stats file grows beyond soft limit, consider cleanup/aggregation.
-    try:
-        stats_size_mb = os.path.getsize(STATS_FILE) / (1024 * 1024)
-        if stats_size_mb >= CONFIG.stats_soft_limit_mb:
-            print(
-                f"{VERSION} | ⚠ Stats note: {os.path.basename(STATS_FILE)} is {stats_size_mb:.2f} MB "
-                f"(>= {CONFIG.stats_soft_limit_mb:.0f} MB). Consider rotating/compressing stats."
-            )
-    except OSError:
-        pass
-
-    stats_script = os.path.join(os.path.dirname(__file__), "StatsCompressor.py")
-    stats_started_at = time.time()
-    try:
-        subprocess.run(["python", stats_script, STATS_FILE], check=True)
-    except Exception as e:
-        print(f"StatsCompressor failed: {e}")
-    stats_elapsed = time.time() - stats_started_at
-
-    print(f"{VERSION} | stats_compressor={stats_elapsed:.2f} sec")
-
-    # Output the number of statistics entries for GIF and WEBP
-    try:
-        with open(STATS_FILE, "r", encoding="utf-8-sig") as f:
-            stats_data = json.load(f)
-        gif_count = len(stats_data.get("gif_stats", []))
-        webp_count = len(stats_data.get("webp_animated_stats", []))
-        print(f"{VERSION} | GIF — {gif_count} items | WEBP — {webp_count} items")
-        # Total number of files in the root folder for scan (before filtering)
-        import subprocess
-        def count_files_in_dir(root_folder):
-            try:
-                # Try to use Everything CLI (es.exe) for fast file counting
-                result = subprocess.run([
-                    "es.exe",
-                    "-count",
-                    f"-path={root_folder}"
-                ], capture_output=True, text=True, timeout=10)
-                if result.returncode == 0:
-                    count_str = result.stdout.strip()
-                    if count_str.isdigit():
-                        return int(count_str)
-            except Exception:
-                pass
-            # Fallback to os.walk if es.exe is not available or fails
-            count = 0
-            for _, _, files in os.walk(root_folder):
-                count += len(files)
-            return count
-        total_files_in_dir = count_files_in_dir(ROOT_FOLDER_PATH)
-    except Exception as e:
-        print(f"{VERSION} | Stats count error: {e}")
-
-    # Final output for user
-    scan_time_str = f"ℹ️ Scan time: {RUN_METRICS['scan_sec']:.2f} sec. Total number of files in folder: {total_files_in_dir}"
-    print(scan_time_str)
-    print("✅ All images converted/compressed and oversized GIFs, Webps compressed.")
-    end_time = time.time()
-    elapsed = end_time - start_time
-    print(f"Total execution time: {elapsed:.2f} sec. Current time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 
