@@ -7,16 +7,16 @@ What this compressor does:
 """
 
 # Single source of truth for the application version.
-APP_VERSION = "2.0.7"
+APP_VERSION = "2.0.8"
 
 # Standard library imports
 import os, sys, time, subprocess
 from datetime import datetime
 from dataclasses import dataclass, field
-from static_pipeline import process_images as static_process_images
-from scan_pipeline import scan_media_candidates as scan_media_candidates_impl
-from webp_pipeline import compress_animated_webp_until_under_target as webp_compress_animated
-from gif_pipeline import process_gifs as gif_process_gifs
+from image_compress import process_images as static_process_images
+from scanner import scan_media_candidates as scan_media_candidates_impl
+from webp_compress import compress_animated_webp_until_under_target as webp_compress_animated
+from gif_compress import process_gifs as gif_process_gifs
 
 start_time = time.time()
 
@@ -190,7 +190,7 @@ def process_gifs(gif_paths, animated_webp_paths):
     )
 
 if __name__ == "__main__":
-    from pipeline_runner import PipelineApi, run_pipeline
+    from runner import PipelineApi, run_pipeline
 
     print(
         f"Compressor {APP_VERSION} | Formats: PNG/JPG/JPEG/JFIF/static WEBP -> <= 999 KB; "
