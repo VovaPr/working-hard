@@ -1,9 +1,13 @@
-﻿"""
-GOAL: Reliably compress GIF files to the target size of 13.5–14.99 MB
-in 30 seconds on average, without quality degradation.
-Strategy: Accurate initial scale prediction from historical run stats
-→ at most 1–2 MEDIANCUT calls per file.
+﻿"""Compressor runtime entrypoint.
+
+What this compressor does:
+- Converts PNG/JFIF images to JPG and compresses static images to <= 999 KB.
+- Compresses GIF and animated WEBP files to the strict target range: 13.5-14.99 MB.
+- Uses historical stats to predict startup parameters and reduce costly iterations.
 """
+
+# Single source of truth for the application version.
+APP_VERSION = "2.0.3"
 
 # Standard library imports
 import os, sys, time, io, json, subprocess
@@ -102,7 +106,7 @@ class GIFConfig:
 
 @dataclass(frozen=True)
 class AppConfig:
-    version: str = "2.0.2"
+    version: str = APP_VERSION
     root_folder_path: str = r"C:\other\lab\pic"
     stats_file: str = field(default_factory=lambda: os.path.join(os.path.dirname(__file__), "CompressorStats.JSON"))
     stats_soft_limit_mb: float = 50.0
@@ -1212,7 +1216,7 @@ if __name__ == "__main__":
     from pipeline_runner import PipelineApi, run_pipeline
 
     print(
-        "Compressor 2.0.2 | Formats: PNG/JPG/JPEG/JFIF/static WEBP -> <= 999 KB; "
+        f"Compressor {APP_VERSION} | Formats: PNG/JPG/JPEG/JFIF/static WEBP -> <= 999 KB; "
         "GIF/animated WEBP -> 13.5-14.99 MB"
     )
 
