@@ -101,7 +101,7 @@ class GIFConfig:
 
 @dataclass(frozen=True)
 class AppConfig:
-    version: str = "Compressor v8.59.42"
+    version: str = "2.0.1"
     root_folder_path: str = r"C:\other\lab\pic"
     stats_file: str = field(default_factory=lambda: os.path.join(os.path.dirname(__file__), "CompressorStats.JSON"))
     stats_soft_limit_mb: float = 50.0
@@ -1902,6 +1902,11 @@ def process_gifs(gif_paths, animated_webp_paths):
 
 if __name__ == "__main__":
     from pipeline_runner import PipelineApi, run_pipeline
+
+    print(
+        "Compressor 2.0.1 | Formats: PNG/JPG/static WEBP -> <= 999 KB; "
+        "GIF/animated WEBP -> 13.5-14.99 MB"
+    )
 
     run_pipeline(
         PipelineApi(

@@ -92,7 +92,7 @@ def run_pipeline(api: PipelineApi):
         _phase_if_debug(api, "core.stats", "Run stats compressor")
         subprocess.run(["python", stats_script, api.stats_file], check=True)
     except Exception as exc:
-        print(f"StatsCompressor failed: {exc}")
+        print(f"{api.version} | StatsCompressor failed: {exc}")
     stats_elapsed = time.time() - stats_started_at
 
     print(f"{api.version} | stats_compressor={stats_elapsed:.2f} sec")
@@ -108,10 +108,13 @@ def run_pipeline(api: PipelineApi):
     except Exception as exc:
         print(f"{api.version} | Stats count error: {exc}")
 
-    print(f"ℹ️ Scan time: {api.run_metrics['scan_sec']:.2f} sec. Total number of files in folder: {total_files_in_dir}")
-    print("✅ All images converted/compressed and oversized GIFs, Webps compressed.")
+    print(
+        f"{api.version} | ℹ️ Scan time: {api.run_metrics['scan_sec']:.2f} sec. "
+        f"Total number of files in folder: {total_files_in_dir}"
+    )
+    print(f"{api.version} | ✅ All images converted/compressed and oversized GIFs, Webps compressed.")
     elapsed = time.time() - api.start_time
     print(
-        f"Total execution time: {elapsed:.2f} sec. "
+        f"{api.version} | Total execution time: {elapsed:.2f} sec. "
         f"Current time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
     )
