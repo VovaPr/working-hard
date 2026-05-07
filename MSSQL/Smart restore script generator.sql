@@ -111,7 +111,7 @@ BEGIN
     RETURN;
 END;
 
-DECLARE @FullFromClause nvarchar(MAX) = N'FROM' + CHAR(10);
+DECLARE @FullFromClause nvarchar(MAX) = N'';
 ;WITH f AS (
     SELECT 
         Seq,
@@ -121,8 +121,10 @@ DECLARE @FullFromClause nvarchar(MAX) = N'FROM' + CHAR(10);
     FROM @FullFiles
 )
 SELECT @FullFromClause = @FullFromClause +
-       N'    DISK = N''' + REPLACE(FilePath, '''', '''''') + N'''' +
-       CASE WHEN rn < cnt THEN N',' ELSE N'' END + CHAR(10)
+    CASE WHEN rn = 1
+         THEN N'    FROM DISK = N''' + REPLACE(FilePath, '''', '''''') + N''''
+         ELSE N'      , DISK = N''' + REPLACE(FilePath, '''', '''''') + N''''
+    END + CHAR(10)
 FROM f;
 
 /* ------------------------------------------------------------------
@@ -141,7 +143,7 @@ BEGIN
 
     IF EXISTS (SELECT 1 FROM @DiffFiles)
     BEGIN
-        SET @DiffFromClause = N'FROM' + CHAR(10);
+        SET @DiffFromClause = N'';
         ;WITH d AS (
             SELECT 
                 Seq,
@@ -150,9 +152,11 @@ BEGIN
                 COUNT(*)     OVER () AS cnt
             FROM @DiffFiles
         )
-        SELECT @DiffFromClause = @DiffFromClause +
-               N'    DISK = N''' + REPLACE(FilePath, '''', '''''') + N'''' +
-               CASE WHEN rn < cnt THEN N',' ELSE N'' END + CHAR(10)
+         SELECT @DiffFromClause = @DiffFromClause +
+             CASE WHEN rn = 1
+                  THEN N'    FROM DISK = N''' + REPLACE(FilePath, '''', '''''') + N''''
+                  ELSE N'      , DISK = N''' + REPLACE(FilePath, '''', '''''') + N''''
+             END + CHAR(10)
         FROM d;
     END
 END
@@ -227,7 +231,7 @@ BEGIN
     SET @msg = @msg
         + N'RESTORE LOG ' + QUOTENAME(@DatabaseName) + CHAR(10)
         + N'    FROM DISK = N''' + REPLACE(@LogPath, '''', '''''') + N'''' + CHAR(10)
-        + N'    WITH NORECOVERY, STATS = 5;' + CHAR(10);
+        + N'    WITH NORECOVERY, REPLACE, STATS = 10;' + CHAR(10);
     FETCH NEXT FROM log_cur INTO @LogStart, @LogPath;
 END
 
