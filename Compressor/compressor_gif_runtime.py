@@ -17,6 +17,7 @@ class GifRuntimeState:
     sample_ratio: float = None
     formula_extra_skip_used: bool = False
     medcut_overhead_hits: int = 0
+    medcut_disabled: bool = False
 
 
 @dataclass(frozen=True)
