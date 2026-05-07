@@ -1,5 +1,5 @@
 from compressor_gif_runtime import is_in_preferred_range, is_in_target_range
-from gif_loop_steps import _run_medcut_step
+from gif_medcut_step import _run_medcut_step
 from gif_ops import _scale_key
 from gif_scale import _advance_scale_after_medcut
 

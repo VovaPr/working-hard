@@ -2,12 +2,9 @@ from compressor_gif_runtime import (
     build_skip_decision,
     predict_medcut_size,
 )
-from gif_loop_steps import (
-    _apply_iter0_adjustments,
-    _run_sample_probe,
-    _try_formula_under_target_skip,
-    _try_hard_skip,
-)
+from gif_adjustments import _apply_iter0_adjustments
+from gif_sample_probe import _run_sample_probe
+from gif_skip_logic import _try_formula_under_target_skip, _try_hard_skip
 from gif_ops import _clamp_prediction, _scale_key
 from gif_probe import _run_fastoctree_trial
 
