@@ -391,7 +391,7 @@ def _try_quality_retry(
     return False
 
 
-def _run_balanced_iteration(
+def _prepare_balanced_medcut_context(
     *,
     iteration,
     source,
@@ -410,7 +410,6 @@ def _run_balanced_iteration(
     workers,
     target_mid,
     bias_factor,
-    small_res_high_frames,
     gif_cfg,
     started_at,
     version,
@@ -448,7 +447,7 @@ def _run_balanced_iteration(
         version=version,
     ):
         return {
-            "done": True,
+            "status": "done",
             "frames_raw": frames_raw,
             "durations": durations,
             "total_frames": total_frames,
@@ -485,7 +484,7 @@ def _run_balanced_iteration(
         version=version,
     ) is not None:
         return {
-            "done": False,
+            "status": "continue",
             "frames_raw": frames_raw,
             "durations": durations,
             "total_frames": total_frames,
@@ -545,7 +544,7 @@ def _run_balanced_iteration(
         print(f"{version} | [gif.skip] -> next scale={skip_decision.suggested_scale:.3f}")
         state.scale = skip_decision.suggested_scale
         return {
-            "done": False,
+            "status": "continue",
             "frames_raw": frames_raw,
             "durations": durations,
             "total_frames": total_frames,
@@ -562,13 +561,13 @@ def _run_balanced_iteration(
         version=version,
     ) is not None:
         return {
-            "done": False,
+            "status": "continue",
             "frames_raw": frames_raw,
             "durations": durations,
             "total_frames": total_frames,
         }
 
-    resized_adj, fast_size, fast_bytes, predicted_medcut = _apply_iter0_adjustments(
+    resized_adj, fast_size, _, predicted_medcut = _apply_iter0_adjustments(
         iteration=iteration,
         source=source,
         source_is_neighbor=source_is_neighbor,
@@ -594,9 +593,44 @@ def _run_balanced_iteration(
     if resized_adj is not None:
         resized_frames = resized_adj
 
+    return {
+        "status": "ready",
+        "resized_frames": resized_frames,
+        "fast_size": fast_size,
+        "predicted_medcut": predicted_medcut,
+        "frames_raw": frames_raw,
+        "durations": durations,
+        "total_frames": total_frames,
+    }
+
+
+def _complete_balanced_iteration(
+    *,
+    iteration,
+    state,
+    med_input,
+    frames_raw,
+    durations,
+    width,
+    height,
+    palette_limit,
+    total_frames,
+    colors_first,
+    init_size,
+    input_path,
+    stats_mgr,
+    executor,
+    workers,
+    target_mid,
+    small_res_high_frames,
+    gif_cfg,
+    started_at,
+    version,
+    debug_log,
+):
     med_size, med_bytes = _run_medcut_step(
         iteration=iteration,
-        resized_frames=resized_frames,
+        resized_frames=med_input["resized_frames"],
         durations=durations,
         palette_limit=palette_limit,
         executor=executor,
@@ -607,6 +641,7 @@ def _run_balanced_iteration(
         version=version,
     )
 
+    predicted_medcut = med_input["predicted_medcut"]
     pred_error = med_size - predicted_medcut
     pred_error_pct = (pred_error / predicted_medcut * 100.0) if predicted_medcut > 0 else 0.0
     debug_log(f"prediction_error={pred_error:+.2f} MB ({pred_error_pct:+.2f}%)")
@@ -620,7 +655,7 @@ def _run_balanced_iteration(
     if state.stall_count >= 2:
         debug_log("stall_guard=active | repeated (scale, med_size) signature")
 
-    print(f"{version} | [gif.compare] Delta vs FASTOCTREE = {med_size - fast_size:+.2f} MB")
+    print(f"{version} | [gif.compare] Delta vs FASTOCTREE = {med_size - med_input['fast_size']:+.2f} MB")
 
     temporal_result = _try_temporal_preserve(
         iteration=iteration,
@@ -637,7 +672,7 @@ def _run_balanced_iteration(
         state=state,
         stats_mgr=stats_mgr,
         total_frames=total_frames,
-        fast_size=fast_size,
+        fast_size=med_input["fast_size"],
         input_path=input_path,
         init_size=init_size,
         started_at=started_at,
@@ -659,10 +694,7 @@ def _run_balanced_iteration(
             "total_frames": temporal_result["total_frames"],
         }
 
-    in_preferred_corridor = (
-        iteration >= 1
-        and is_in_preferred_range(med_size, gif_cfg)
-    )
+    in_preferred_corridor = iteration >= 1 and is_in_preferred_range(med_size, gif_cfg)
     in_target = is_in_target_range(med_size, gif_cfg)
 
     if _try_quality_retry(
@@ -682,7 +714,7 @@ def _run_balanced_iteration(
         state=state,
         stats_mgr=stats_mgr,
         total_frames=total_frames,
-        fast_size=fast_size,
+        fast_size=med_input["fast_size"],
         input_path=input_path,
         init_size=init_size,
         started_at=started_at,
@@ -705,7 +737,7 @@ def _run_balanced_iteration(
             height=height,
             total_frames=total_frames,
             colors_first=colors_first,
-            fast_size=fast_size,
+            fast_size=med_input["fast_size"],
             med_size=med_size,
             med_bytes=med_bytes,
             state=state,
@@ -736,6 +768,94 @@ def _run_balanced_iteration(
         "durations": durations,
         "total_frames": total_frames,
     }
+
+
+def _run_balanced_iteration(
+    *,
+    iteration,
+    source,
+    state,
+    frames_raw,
+    durations,
+    width,
+    height,
+    palette_limit,
+    total_frames,
+    colors_first,
+    init_size,
+    input_path,
+    stats_mgr,
+    executor,
+    workers,
+    target_mid,
+    bias_factor,
+    small_res_high_frames,
+    gif_cfg,
+    started_at,
+    version,
+    debug_log,
+):
+    med_input = _prepare_balanced_medcut_context(
+        iteration=iteration,
+        source=source,
+        state=state,
+        frames_raw=frames_raw,
+        durations=durations,
+        width=width,
+        height=height,
+        palette_limit=palette_limit,
+        total_frames=total_frames,
+        colors_first=colors_first,
+        init_size=init_size,
+        input_path=input_path,
+        stats_mgr=stats_mgr,
+        executor=executor,
+        workers=workers,
+        target_mid=target_mid,
+        bias_factor=bias_factor,
+        gif_cfg=gif_cfg,
+        started_at=started_at,
+        version=version,
+        debug_log=debug_log,
+    )
+    if med_input["status"] == "done":
+        return {
+            "done": True,
+            "frames_raw": med_input["frames_raw"],
+            "durations": med_input["durations"],
+            "total_frames": med_input["total_frames"],
+        }
+    if med_input["status"] == "continue":
+        return {
+            "done": False,
+            "frames_raw": med_input["frames_raw"],
+            "durations": med_input["durations"],
+            "total_frames": med_input["total_frames"],
+        }
+
+    return _complete_balanced_iteration(
+        iteration=iteration,
+        state=state,
+        med_input=med_input,
+        frames_raw=frames_raw,
+        durations=durations,
+        width=width,
+        height=height,
+        palette_limit=palette_limit,
+        total_frames=total_frames,
+        colors_first=colors_first,
+        init_size=init_size,
+        input_path=input_path,
+        stats_mgr=stats_mgr,
+        executor=executor,
+        workers=workers,
+        target_mid=target_mid,
+        small_res_high_frames=small_res_high_frames,
+        gif_cfg=gif_cfg,
+        started_at=started_at,
+        version=version,
+        debug_log=debug_log,
+    )
 
 
 def balanced_compress_gif(
