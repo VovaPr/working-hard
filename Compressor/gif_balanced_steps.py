@@ -1,7 +1,5 @@
-from gif_balanced_iteration_parts import (
-    _complete_balanced_iteration,
-    _prepare_balanced_medcut_context,
-)
+from gif_prepare_medcut import _prepare_balanced_medcut_context
+from gif_complete_medcut import _complete_balanced_iteration
 
 
 def _run_balanced_iteration(
