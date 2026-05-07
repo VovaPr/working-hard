@@ -22,6 +22,7 @@ from gif_loop_steps import (
 )
 from gif_ops import (
     _clamp_prediction,
+    _scale_key,
     compress_med_cut,
     resize_frames,
     temporal_reduce,
