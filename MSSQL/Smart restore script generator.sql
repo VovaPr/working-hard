@@ -200,7 +200,7 @@ SET @msg = @msg
   + N'-- 1) RESTORE FULL' + CHAR(10)
   + N'RESTORE DATABASE ' + QUOTENAME(@DatabaseName) + CHAR(10)
   + @FullFromClause
-  + N'WITH NORECOVERY, REPLACE, STATS = 10;' + CHAR(10) + CHAR(10);
+    + N'    WITH NORECOVERY, REPLACE, STATS = 10;' + CHAR(10) + CHAR(10);
 
 -- DIFF restore (if present and preferred)
 IF @DiffMediaSetID IS NOT NULL AND @PreferDiff = 1 AND @DiffFromClause IS NOT NULL
@@ -209,7 +209,7 @@ BEGIN
       + N'-- 2) RESTORE DIFFERENTIAL' + CHAR(10)
       + N'RESTORE DATABASE ' + QUOTENAME(@DatabaseName) + CHAR(10)
       + @DiffFromClause
-      + N'WITH NORECOVERY, STATS = 10;' + CHAR(10) + CHAR(10);
+            + N'    WITH NORECOVERY, STATS = 10;' + CHAR(10) + CHAR(10);
 END
 
 -- LOG chain
