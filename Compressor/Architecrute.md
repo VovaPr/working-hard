@@ -1,0 +1,94 @@
+# Compressor GIF Architecture (v2.0.23)
+
+This document describes the current GIF compression architecture inside the Compressor folder.
+
+## High-Level Flow
+
+1. `gif_compress.py` starts GIF processing and controls the main iteration loop.
+2. `gif_balanced_steps.py` orchestrates one iteration.
+3. `gif_prepare_medcut.py` executes FASTOCTREE trial and preparation logic.
+4. `gif_complete_medcut.py` executes MEDIANCUT completion logic and final decisions.
+
+## Module Responsibilities
+
+### Entry and Orchestration
+
+- `gif_compress.py`
+  - Entrypoint for GIF pipeline.
+  - Handles decode/input normalization and iteration lifecycle.
+- `gif_balanced_steps.py`
+  - Thin orchestrator for iteration stages.
+  - Calls prepare stage, then completion stage.
+
+### Prepare Stage
+
+- `gif_prepare_medcut.py`
+  - Runs FASTOCTREE trial.
+  - Calculates MEDIANCUT prediction.
+  - Applies skip/probe/adjust decisions before MEDIANCUT execution.
+
+Supporting helpers used by prepare stage:
+
+- `gif_probe.py`
+  - FASTOCTREE trial wrapper.
+- `gif_skip_logic.py`
+  - Hard skip and under-target skip rules.
+- `gif_sample_probe.py`
+  - Sample probe calibration and carry-over ratio.
+- `gif_adjustments.py`
+  - Iteration-0 pre-correction, soft pre-shrink, and micro-adjust logic.
+
+### Completion Stage
+
+- `gif_complete_medcut.py`
+  - Runs MEDIANCUT step.
+  - Applies overhead guard behavior.
+  - Routes to temporal retry, quality retry, success finalize, or scale advance.
+
+Supporting helpers used by completion stage:
+
+- `gif_medcut_step.py`
+  - MEDIANCUT execution and cache handling.
+- `gif_balanced_temporal.py`
+  - Temporal preserve/reduction and quality retry logic.
+- `gif_balanced_result.py`
+  - Final success save/stats handling.
+- `gif_complete_utils.py`
+  - FAST-only fallback scale advancement helper.
+
+### Shared Runtime and Primitives
+
+- `compressor_gif_runtime.py`
+  - Runtime state and decision helpers.
+  - Prediction and corridor/target checks.
+- `gif_stats.py`
+  - Persistent stats manager for model/prediction input.
+- `gif_scale.py`
+  - Scale update strategy after MEDIANCUT outcome.
+- `gif_ops.py`
+  - Low-level frame/encoding operations and utility primitives.
+
+## Dependency Shape (Simplified)
+
+- FASTOCTREE path:
+  - `gif_prepare_medcut.py` -> `gif_probe.py` -> `gif_ops.py`
+- MEDIANCUT path:
+  - `gif_complete_medcut.py` -> `gif_medcut_step.py` -> `gif_ops.py`
+- Prediction and decision path:
+  - `gif_prepare_medcut.py` -> `compressor_gif_runtime.py` + `gif_stats.py`
+
+## Runtime Invariants
+
+- GIF target range: 13.5-14.99 MB.
+- Max safe iterations: 10.
+- MEDIANCUT overhead guard is enabled.
+- If repeated MEDIANCUT overhead is too high:
+  - Accept FASTOCTREE only when it is in target range.
+  - Otherwise switch to FAST-only search mode until target is reached.
+
+## Current Architecture Goals
+
+- Single responsibility per module.
+- Explicit stage boundaries: prepare vs complete.
+- Predictable dependency graph with focused helpers.
+- Preserve output target correctness while reducing runtime.
