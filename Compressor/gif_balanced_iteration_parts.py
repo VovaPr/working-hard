@@ -15,7 +15,7 @@ from gif_ops import _clamp_prediction, _scale_key
 from gif_probe import _run_fastoctree_trial
 from gif_scale import _advance_scale_after_medcut
 
-from gif_balanced_result import _finalize_medcut_success, _try_fast_accept
+from gif_balanced_result import _finalize_medcut_success, _save_success_result, _try_fast_accept
 from gif_balanced_temporal import _try_quality_retry, _try_temporal_preserve
 
 
@@ -225,6 +225,7 @@ def _prepare_balanced_medcut_context(
         "status": "ready",
         "resized_frames": resized_frames,
         "fast_size": fast_size,
+        "fast_bytes": fast_bytes,
         "predicted_medcut": predicted_medcut,
         "frames_raw": frames_raw,
         "durations": durations,
@@ -283,7 +284,54 @@ def _complete_balanced_iteration(
     if state.stall_count >= 2:
         debug_log("stall_guard=active | repeated (scale, med_size) signature")
 
-    print(f"{version} | [gif.compare] Delta vs FASTOCTREE = {med_size - med_input['fast_size']:+.2f} MB")
+    medcut_overhead_mb = med_size - med_input["fast_size"]
+    print(f"{version} | [gif.compare] Delta vs FASTOCTREE = {medcut_overhead_mb:+.2f} MB")
+
+    if medcut_overhead_mb >= gif_cfg.medcut_overhead_guard_margin_mb:
+        state.medcut_overhead_hits += 1
+        print(
+            f"{version} | [gif.guard] MEDIANCUT overhead hit "
+            f"{state.medcut_overhead_hits}/{gif_cfg.medcut_overhead_guard_max_hits} "
+            f"(delta={medcut_overhead_mb:+.2f} MB)"
+        )
+    else:
+        state.medcut_overhead_hits = 0
+
+    if gif_cfg.medcut_overhead_guard_enabled and state.medcut_overhead_hits >= gif_cfg.medcut_overhead_guard_max_hits:
+        fast_saved_size = len(med_input["fast_bytes"]) / (1024 * 1024)
+        stats_mgr.save_stats(
+            palette_limit,
+            width,
+            height,
+            total_frames,
+            med_input["fast_size"],
+            fast_saved_size,
+            state.scale,
+        )
+        print(
+            f"{version} | [gif.guard] Repeated MEDIANCUT overhead is too high; "
+            f"stopping MEDIANCUT path and using FASTOCTREE"
+        )
+        _save_success_result(
+            input_path=input_path,
+            output_bytes=med_input["fast_bytes"],
+            init_size=init_size,
+            result_size=fast_saved_size,
+            iteration=iteration,
+            started_at=started_at,
+            total_frames=total_frames,
+            colors_first=colors_first,
+            width=width,
+            height=height,
+            version=version,
+            success_label="fast-guard",
+        )
+        return {
+            "done": True,
+            "frames_raw": frames_raw,
+            "durations": durations,
+            "total_frames": total_frames,
+        }
 
     temporal_result = _try_temporal_preserve(
         iteration=iteration,

@@ -7,7 +7,7 @@ What this compressor does:
 """
 
 # Single source of truth for the application version.
-APP_VERSION = "2.0.19"
+APP_VERSION = "2.0.20"
 
 # Standard library imports
 import os, sys, time, subprocess
@@ -92,6 +92,9 @@ class GIFConfig:
     webp_animated_startup_min_count: int = 2
     # Allow more time for large files: effective_max = max(webp_file_max_seconds, frames * per_frame).
     webp_animated_max_seconds_per_frame: float = 0.52
+    medcut_overhead_guard_enabled: bool = True
+    medcut_overhead_guard_margin_mb: float = 6.0
+    medcut_overhead_guard_max_hits: int = 2
 
 
 @dataclass(frozen=True)
