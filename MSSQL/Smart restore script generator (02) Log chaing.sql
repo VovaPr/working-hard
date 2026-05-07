@@ -8,8 +8,8 @@
 SET NOCOUNT ON;
 
 DECLARE
-    @DatabaseName sysname = N'ProfileQueue',
-    @CompletionTime datetime2(7) = '2026-04-22T16:15:34.0581067', -- SSMS completion time
+    @DatabaseName sysname = N'cube_rm_live',
+    @CompletionTime datetime2(7) = '2026-05-06T16:15:34.0581067', -- SSMS completion time
     @msg nvarchar(MAX) = N'';
 
 DECLARE @LogBackups TABLE (
@@ -74,9 +74,8 @@ BEGIN
                 + N' (start=' + CONVERT(nvarchar(30), @BackupStart, 120)
                 + N', finish=' + CONVERT(nvarchar(30), @BackupFinish, 120) + N')' + CHAR(10)
                 + N'RESTORE LOG ' + QUOTENAME(@DatabaseName) + CHAR(10)
-                + N'FROM' + CHAR(10)
-                + N'    DISK = N''' + REPLACE(@LogPath, '''', '''''') + N'''' + CHAR(10)
-                + N'WITH NORECOVERY, STATS = 5;' + CHAR(10) + CHAR(10);
+                + N'    FROM DISK = N''' + REPLACE(@LogPath, '''', '''''') + N'''' + CHAR(10)
+                + N'    WITH NORECOVERY, REPLACE, STATS = 10;' + CHAR(10) + CHAR(10);
         END
         ELSE
         BEGIN
