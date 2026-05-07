@@ -9,6 +9,61 @@ This document describes the current GIF compression architecture inside the Comp
 3. `gif_prepare_medcut.py` executes FASTOCTREE trial and preparation logic.
 4. `gif_complete_medcut.py` executes MEDIANCUT completion logic and final decisions.
 
+## Module Hierarchy (Visual)
+
+```text
+Compressor GIF Pipeline
+|
++-- Entry Layer
+|   +-- gif_compress.py
+|       +-- starts GIF pipeline
+|       +-- owns iteration lifecycle
+|
++-- Orchestration Layer
+|   +-- gif_balanced_steps.py
+|       +-- routes: prepare -> complete
+|
++-- Prepare Stage
+|   +-- gif_prepare_medcut.py
+|       +-- uses gif_probe.py (FASTOCTREE trial)
+|       +-- uses gif_skip_logic.py (hard/under-target skip)
+|       +-- uses gif_sample_probe.py (sample calibration)
+|       +-- uses gif_adjustments.py (iter0 pre-adjustments)
+|       +-- uses compressor_gif_runtime.py (prediction + decisions)
+|       +-- uses gif_stats.py (historical deltas)
+|
++-- Complete Stage
+|   +-- gif_complete_medcut.py
+|       +-- uses gif_medcut_step.py (MEDIANCUT execution + cache)
+|       +-- uses gif_balanced_temporal.py (temporal retry)
+|       +-- uses gif_balanced_result.py (success finalize/save)
+|       +-- uses gif_complete_utils.py (FAST-only fallback scale)
+|       +-- uses gif_scale.py (next-scale progression)
+|
++-- Shared Core
+  +-- gif_ops.py (low-level frame and encoding primitives)
+```
+
+### Quick Dependency Map
+
+```text
+gif_compress.py
+  -> gif_balanced_steps.py
+    -> gif_prepare_medcut.py
+      -> gif_probe.py -> gif_ops.py
+      -> gif_skip_logic.py
+      -> gif_sample_probe.py -> gif_ops.py
+      -> gif_adjustments.py
+      -> compressor_gif_runtime.py
+      -> gif_stats.py
+    -> gif_complete_medcut.py
+      -> gif_medcut_step.py -> gif_ops.py
+      -> gif_balanced_temporal.py
+      -> gif_balanced_result.py
+      -> gif_complete_utils.py
+      -> gif_scale.py
+```
+
 ## Module Responsibilities
 
 ### Entry and Orchestration
