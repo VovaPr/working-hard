@@ -40,30 +40,14 @@ class AnimatedWebPStatsManager:
                 entry.get("height"),
                 entry.get("frames"),
                 entry.get("init_size_mb"),
-                entry.get("quality"),
                 entry.get("method"),
             )
-            cnt = int(entry.get("count", 1) or 1)
             if key not in merged:
-                base = entry.copy()
-                base["count"] = cnt
-                merged[key] = base
-                continue
-
-            cur = merged[key]
-            cur_cnt = int(cur.get("count", 1) or 1)
-            total_cnt = cur_cnt + cnt
-
-            cur_result = float(cur.get("result_size_mb", 0.0))
-            new_result = float(entry.get("result_size_mb", cur_result))
-            cur_encode = float(cur.get("encode_sec", 0.0))
-            new_encode = float(entry.get("encode_sec", cur_encode))
-
-            cur["result_size_mb"] = round((cur_result * cur_cnt + new_result * cnt) / max(total_cnt, 1), 2)
-            cur["encode_sec"] = round((cur_encode * cur_cnt + new_encode * cnt) / max(total_cnt, 1), 2)
-            cur["count"] = total_cnt
-            cur["timestamp"] = max(float(cur.get("timestamp", 0)), float(entry.get("timestamp", 0)))
-
+                merged[key] = entry.copy()
+            else:
+                # Оставляем запись с максимальным timestamp
+                if float(entry.get("timestamp", 0)) > float(merged[key].get("timestamp", 0)):
+                    merged[key] = entry.copy()
         return sorted(merged.values(), key=lambda e: e.get("timestamp", 0))
 
     def save_step(self, width, height, frames, init_size_mb, quality, method, result_size_mb, encode_sec):
@@ -72,6 +56,7 @@ class AnimatedWebPStatsManager:
         encode_sec = round(encode_sec, 2)
         now_ts = time.time()
 
+        # Новый ключ без quality
         merged = False
         for entry in self.webp_stats:
             if (
@@ -79,14 +64,16 @@ class AnimatedWebPStatsManager:
                 and entry.get("height") == height
                 and entry.get("frames") == frames
                 and entry.get("init_size_mb") == init_size_mb
-                and entry.get("quality") == quality
                 and entry.get("method") == method
             ):
-                cnt = int(entry.get("count", 1) or 1)
-                entry["result_size_mb"] = round((float(entry.get("result_size_mb", result_size_mb)) * cnt + result_size_mb) / (cnt + 1), 2)
-                entry["encode_sec"] = round((float(entry.get("encode_sec", encode_sec)) * cnt + encode_sec) / (cnt + 1), 2)
-                entry["count"] = cnt + 1
-                entry["timestamp"] = now_ts
+                # Обновляем только если новая запись "свежее"
+                if now_ts > float(entry.get("timestamp", 0)):
+                    entry.update({
+                        "quality": quality,
+                        "result_size_mb": result_size_mb,
+                        "encode_sec": encode_sec,
+                        "timestamp": now_ts,
+                    })
                 merged = True
                 break
 
@@ -125,10 +112,12 @@ class AnimatedWebPStatsManager:
         except Exception as e:
             print(f"{self.version} | Warning: failed to save webp_animated_stats: {e}")
 
+
     def select_startup_plan(self, width, height, frames, init_size_mb, target_min_mb, target_max_mb, gif_cfg):
-        max_diff_ratio = 0.20
+        # Fuzzy matching tolerances
+        max_diff_ratio = 0.03  # 3% для размеров и кадров
+        init_tolerance = max(0.15, float(gif_cfg.webp_animated_direct_final_init_tolerance_mb))  # 0.15 MB или config
         target_mid_mb = (target_min_mb + target_max_mb) / 2.0
-        exact_init_tolerance = max(0.05, float(gif_cfg.webp_animated_direct_final_init_tolerance_mb))
         candidates = []
 
         min_count = max(1, int(gif_cfg.webp_animated_startup_min_count))
@@ -138,8 +127,11 @@ class AnimatedWebPStatsManager:
             height_diff = abs(entry["height"] - height) / max(height, 1)
             frame_diff = abs(entry["frames"] - frames) / max(frames, 1)
             entry_count = int(entry.get("count", 1) or 1)
+            init_diff = abs(entry["init_size_mb"] - init_size_mb)
 
             if width_diff > max_diff_ratio or height_diff > max_diff_ratio or frame_diff > max_diff_ratio:
+                continue
+            if init_diff > init_tolerance:
                 continue
             if entry_count < min_count:
                 continue
@@ -148,17 +140,13 @@ class AnimatedWebPStatsManager:
             if not (target_min_mb - 0.3 <= result_size <= target_max_mb + 0.3):
                 continue
 
-            init_diff = abs(entry["init_size_mb"] - init_size_mb)
             mid_diff = abs(result_size - target_mid_mb)
             exact_profile = (
-                entry["width"] == width
-                and entry["height"] == height
-                and entry["frames"] == frames
+                width_diff < 1e-6 and height_diff < 1e-6 and frame_diff < 1e-6 and init_diff < 1e-6
             )
             direct_final = bool(
                 gif_cfg.webp_animated_direct_final_enabled
                 and exact_profile
-                and init_diff <= exact_init_tolerance
             )
             candidates.append(
                 {

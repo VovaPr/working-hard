@@ -2767,6 +2767,16 @@
       "scale": 0.7362981383404541,
       "timestamp": 1778511553.8570337,
       "count": 2
+    },
+    {
+      "palette": 256,
+      "width": 801,
+      "height": 450,
+      "frames": 344,
+      "fast_size": 9.715999603271484,
+      "med_size": 14.461907386779785,
+      "scale": 0.4393620185670727,
+      "timestamp": 1778517705.5895572
     }
   ],
   "webp_animated_stats": [
@@ -2787,11 +2797,11 @@
       "height": 720,
       "frames": 390,
       "init_size_mb": 25.79,
-      "quality": 45,
+      "quality": 49,
       "method": 2,
-      "result_size_mb": 13.98,
-      "encode_sec": 24.24,
-      "timestamp": 1778513582.513112,
+      "result_size_mb": 13.63,
+      "encode_sec": 38.07,
+      "timestamp": 1778517957.785574,
       "count": 1
     }
   ]
