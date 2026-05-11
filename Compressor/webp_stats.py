@@ -128,12 +128,18 @@ class AnimatedWebPStatsManager:
             frame_diff = abs(entry["frames"] - frames) / max(frames, 1)
             entry_count = int(entry.get("count", 1) or 1)
             init_diff = abs(entry["init_size_mb"] - init_size_mb)
+            strong_profile_match = (
+                entry.get("width") == width
+                and entry.get("height") == height
+                and entry.get("frames") == frames
+                and init_diff <= init_tolerance
+            )
 
             if width_diff > max_diff_ratio or height_diff > max_diff_ratio or frame_diff > max_diff_ratio:
                 continue
             if init_diff > init_tolerance:
                 continue
-            if entry_count < min_count:
+            if entry_count < min_count and not strong_profile_match:
                 continue
 
             result_size = entry["result_size_mb"]
@@ -146,7 +152,7 @@ class AnimatedWebPStatsManager:
             )
             direct_final = bool(
                 gif_cfg.webp_animated_direct_final_enabled
-                and exact_profile
+                and strong_profile_match
             )
             candidates.append(
                 {
