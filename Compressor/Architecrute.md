@@ -1,4 +1,4 @@
-# Compressor GIF Architecture (v2.0.33)
+# Compressor GIF Architecture (v2.0.34)
 
 This document describes the current compression architecture inside the Compressor folder.
 
@@ -33,6 +33,7 @@ Compressor.py
   -> webp_compress.py
     -> webp_animated_pipeline.py
       -> webp_animated_steps.py
+        -> webp_sample_probe.py
         -> webp_loop_steps.py
           -> webp_timeout_steps.py
           -> webp_persist_steps.py
@@ -116,7 +117,11 @@ Compressor GIF Pipeline
 |       +-- delegates encode/result handling to webp_animated_steps.py
 |   +-- webp_animated_steps.py
 |       +-- uses webp_loop_steps.py for encode/persist/runtime helpers
+|       +-- uses webp_sample_probe.py for frame-subset quality calibration
 |       +-- runs bracketed quality search and timeout/best-effort logic
+|   +-- webp_sample_probe.py
+|       +-- evenly-spaced frame subset encode to predict full size
+|       +-- returns calibrated initial quality before main loop
 |   +-- webp_loop_steps.py
 |       +-- startup/runtime/encode/direct-fast fallback helpers
 |       +-- delegates timeout rescue to webp_timeout_steps.py
@@ -160,6 +165,7 @@ gif_compress.py
 webp_compress.py
   -> webp_animated_pipeline.py
     -> webp_animated_steps.py
+      -> webp_sample_probe.py
       -> webp_loop_steps.py
         -> webp_timeout_steps.py
         -> webp_persist_steps.py
@@ -263,7 +269,11 @@ Supporting helpers used by completion stage:
   - Coordinates startup, per-step execution, and final fallback.
 - `webp_animated_steps.py`
   - Contains encode-step execution, bracket updates, timeout handling, and best-effort persistence.
-    - Second-level helpers: `_check_early_exits`, `_pick_next_quality`.
+    - Second-level helpers: `_check_early_exits`, `_pick_next_quality`, `_run_sample_probe_if_needed`.
+- `webp_sample_probe.py`
+  - Frame-subset sample probe for initial quality calibration.
+  - Encodes an evenly-spaced subset, extrapolates full file size, returns corrected quality.
+  - Only runs when no stats profile exists (`direct_final_from_stats=False`) and `frame_count >= webp_sample_probe_min_frames`.
 - `webp_loop_steps.py`
   - Lower-level startup/runtime/encode/fallback helpers reused by WEBP animated steps.
 - `webp_timeout_steps.py`
@@ -280,7 +290,7 @@ Supporting helpers used by completion stage:
 - Prediction and decision path:
   - `gif_prepare_pipeline.py` -> `gif_prepare_steps.py` -> `compressor_gif_runtime.py` + `gif_stats.py`
 - Animated WEBP path:
-  - `webp_compress.py` -> `webp_animated_pipeline.py` -> `webp_animated_steps.py` -> `webp_loop_steps.py` -> (`webp_timeout_steps.py`, `webp_persist_steps.py`)
+  - `webp_compress.py` -> `webp_animated_pipeline.py` -> `webp_animated_steps.py` -> `webp_sample_probe.py` (probe) + `webp_loop_steps.py` -> (`webp_timeout_steps.py`, `webp_persist_steps.py`)
 
 ## Runtime Invariants
 
@@ -394,10 +404,17 @@ Animated WEBP compression uses a bracketed binary search over quality values:
 
 1. **Startup**: Stats lookup selects initial quality and whether direct-final mode applies. If no
    stats, ratio-seeded formula initializes quality.
-2. **Direct-fast shortcut**: If direct-final is active and the known result fits within
+2. **Sample probe** (new in v2.0.34): When no stats profile exists (`direct_final_from_stats=False`)
+   and `frame_count >= webp_sample_probe_min_frames` (default 60), a cheap probe encodes
+   `webp_sample_probe_sample_count` (default 20) evenly-spaced frames at the initial quality.
+   The per-frame size is scaled to the full frame count (with a small `webp_sample_probe_bias = 1.02`
+   conservative factor) to predict the full encoded size, then quality is recalculated via
+   `sqrt(target_mid / predicted_full)`. This typically costs ~3s for 390-frame files and saves 1-2
+   full encode iterations (~1-2 minutes).
+3. **Direct-fast shortcut**: If direct-final is active and the known result fits within
    `webp_animated_direct_final_fast_max_growth = 1.10` tolerance, method=1 is tried first. If it
    misses target, falls back to method=2.
-3. **Per-iteration loop**:
+4. **Per-iteration loop**:
    - Encode at current quality/method.
    - If in target range -> persist success, done.
    - Update `under_target_q` / `over_target_q` bracket and best-effort candidate.
@@ -406,7 +423,7 @@ Animated WEBP compression uses a bracketed binary search over quality values:
    - **Near-target nudge**: within 10% of target_mid and bracket unknown -> quality +/-1 or +/-2.
    - **Resize fallback**: quality <= 45 -> resize frames and reset quality=95.
    - Otherwise: binary search between bracket bounds, or ratio-based correction.
-4. **Max iterations**: Persist best-effort (closest to target_mid).
+5. **Max iterations**: Persist best-effort (closest to target_mid).
 
 Effective timeout: `max(webp_file_max_seconds, frames x webp_animated_max_seconds_per_frame)`.
 

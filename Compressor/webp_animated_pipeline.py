@@ -6,6 +6,7 @@ from webp_animated_steps import (
     _persist_max_iterations,
     _resolve_animation_startup,
     _run_encode_step,
+    _run_sample_probe_if_needed,
 )
 
 
@@ -37,6 +38,16 @@ def _compress_animated_webp(
         local_version=local_version,
     )
     state = _build_animation_state(startup=startup, frames=frames)
+
+    _run_sample_probe_if_needed(
+        state=state,
+        frames=frames,
+        durations=durations,
+        target_mid_bytes=target_mid_bytes,
+        frame_count=frame_count,
+        local_version=local_version,
+        gif_cfg=gif_cfg,
+    )
 
     for step in range(1, gif_cfg.webp_animated_max_iterations + 1):
         step_result = _run_encode_step(

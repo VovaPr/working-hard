@@ -12,6 +12,7 @@ from webp_loop_steps import (
     resolve_startup_quality,
     try_timeout_rescue,
 )
+from webp_sample_probe import run_webp_sample_probe
 
 
 def _save_webp_frames(frames, durations, quality, method=6):
@@ -324,6 +325,24 @@ def _resolve_next_quality(*, under_target_q, over_target_q, quality, effective_s
     if over_target_q is not None:
         proposed_quality = min(proposed_quality, over_target_q - 1)
     return proposed_quality
+
+
+def _run_sample_probe_if_needed(*, state, frames, durations, target_mid_bytes, frame_count, local_version, gif_cfg):
+    """Run a cheap frame-subset probe to calibrate the initial quality when no stats profile exists."""
+    if state["direct_final_from_stats"]:
+        return
+    corrected_quality = run_webp_sample_probe(
+        frames=frames,
+        durations=durations,
+        quality=state["quality"],
+        target_mid_bytes=target_mid_bytes,
+        frame_count=frame_count,
+        local_version=local_version,
+        gif_cfg=gif_cfg,
+        save_webp_frames=_save_webp_frames,
+    )
+    if corrected_quality is not None:
+        state["quality"] = corrected_quality
 
 
 def _build_animation_state(*, startup, frames):
