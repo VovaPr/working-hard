@@ -1,6 +1,13 @@
-# Compressor GIF Architecture (v2.0.47)
+# Compressor GIF Architecture (v2.0.48)
 
 This document describes the current compression architecture inside the Compressor folder.
+
+## Fixed Decisions
+
+- Stats storage policy (accepted): keep GIF stats as one JSON file.
+- No stats sharding/rotation until file size reaches 5 MB.
+- Git history is accepted as sufficient rollback/audit mechanism before the 5 MB threshold.
+- Revisit this decision only after measured file size is >= 5 MB.
 
 ## Quick Structure
 

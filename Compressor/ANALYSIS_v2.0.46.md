@@ -242,7 +242,7 @@ if not direct_final_from_stats and overflow_ratio > 1.15:
 
 ### 2.3 Prediction Accuracy
 
-#### Prediction Sources (Good Strategy, But Stale Stats Risk) 🟡
+#### Prediction Sources (Good Strategy, Accepted as-is for now) 🟢
 **Location**: `compressor_gif_runtime.py`, `gif_stats.py`
 
 **Current Priority Order**:
@@ -251,18 +251,14 @@ if not direct_final_from_stats and overflow_ratio > 1.15:
 3. **Delta average** (ok, averaging historical overhead)
 4. **Formula** (conservative, fallback)
 
-**Problem**:
+**Notes**:
 - After first iteration, we have **real FAST result** but still trust old stats
 - If stats are stale (> 1 week), predictions can be off by 10-30%
 - High-risk neighbor selection (palette >= 220, frames >= 100) without enough samples
 
-**Recommendation** (Low Priority):
-```python
-# Add "real measure" source that trumps stats after iter 1:
-if iteration >= 1 and last_fast_measured:
-    # Use actual measured ratio, more trustworthy than old stats
-    use_measured_fast_to_medcut_ratio()
-```
+**Decision (May 2026)**:
+- Keep current prediction priority unchanged.
+- No stale-priority override work in current roadmap.
 
 ---
 
@@ -500,7 +496,7 @@ Payoff:  1-2 iterations saved on new large files
 
 ---
 
-### 🟡 **P4: Stats Rotation Checkpoint** (LOW-MEDIUM IMPACT: +long-term stability)
+### ⚪ **P4: Stats Rotation Checkpoint** (DEFERRED by decision)
 ```
 Current: TODO note in code, not implemented
 Target:  Archive stats when > 5 MB
@@ -508,6 +504,11 @@ Effort:  20-30 minutes
 Risk:    Low (non-critical feature)
 Payoff:  Prevents huge stats file, keeps queries O(n) bounded
 ```
+
+**Decision (May 2026)**:
+- Keep a single stats JSON file.
+- Do not implement rotation until measured file size reaches 5 MB.
+- Git history is accepted as sufficient backup/audit mechanism before that threshold.
 
 ---
 
@@ -559,9 +560,9 @@ def test_stats_batch_flush():
 | **Documentation** | 6/10 | 🟡 Good logging, sparse docstrings |
 | **Error Handling** | 7/10 | ✅ Graceful fallbacks, missing edge cases |
 | **Testing** | 5/10 | 🟡 Syntax checks good, scenario tests missing |
-| **Prediction Quality** | 7/10 | ✅ Multi-source, but stale stats risk |
+| **Prediction Quality** | 7/10 | ✅ Multi-source, accepted as-is for now |
 | **Code Consistency** | 6/10 | 🟡 Naming inconsistencies (bytes/buf/size) |
-| **Scalability** | 5/10 | ⚠️ Large files risk OOM, stats unbounded |
+| **Scalability** | 5/10 | ⚠️ Large files risk OOM, stats monitored until 5 MB |
 
 ---
 
@@ -579,9 +580,8 @@ def test_stats_batch_flush():
 - [ ] Commit: v2.0.48
 
 ### Week 2-3: P4 (Stats Rotation)
-- [ ] Implement rotation logic (archive at 5 MB)
-- [ ] Test with large stats file
-- [ ] Commit: v2.0.49
+- [x] Deferred by policy decision (single file until 5 MB)
+- [x] Revisit only when measured threshold is reached
 
 ### Ongoing: P5 (Testing & Validation)
 - [ ] Add missing test scenarios
