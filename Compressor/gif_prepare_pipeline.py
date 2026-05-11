@@ -97,6 +97,7 @@ def _prepare_balanced_medcut_context(
         iteration=iteration,
         source=source,
         source_is_neighbor=source_is_neighbor,
+        colors_first=colors_first,
         fast_size=fast_size,
         fast_bytes=fast_bytes,
         target_mid=target_mid,

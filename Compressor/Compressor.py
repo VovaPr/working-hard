@@ -53,6 +53,13 @@ class GIFPredictionConfig:
     neighbor_scale_confident_max_std: float = 0.035
     stats_source_bias_extra: float = 1.08
     neighbor_source_bias_extra: float = 1.04
+    # Variant 3: conservative iter0 pre-shrink for risky stats-source cases.
+    stats_risky_preshrink_enabled: bool = True
+    stats_risky_preshrink_min_palette: int = 220
+    stats_risky_preshrink_trigger_ratio: float = 0.995
+    stats_risky_preshrink_max_ratio: float = 1.20
+    stats_risky_preshrink_scale_factor: float = 0.99
+    stats_risky_preshrink_max_step_ratio: float = 0.10
 
 
 @dataclass(frozen=True)

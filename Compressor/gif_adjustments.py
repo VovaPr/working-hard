@@ -10,6 +10,7 @@ def _apply_iter0_adjustments(
     iteration,
     source,
     source_is_neighbor,
+    colors_first,
     fast_size,
     fast_bytes,
     target_mid,
@@ -86,6 +87,57 @@ def _apply_iter0_adjustments(
                 fast_cache=state.fast_cache,
                 version=version,
                 stage_tag="soft-corrected",
+            )
+            predicted_medcut = predict_medcut_size(
+                stats_mgr=stats_mgr,
+                palette_limit=palette_limit,
+                width=width,
+                height=height,
+                total_frames=total_frames,
+                fast_size=fast_size,
+                bias_factor=bias_factor,
+                source=source,
+                gif_cfg=gif_cfg,
+                clamp_prediction_fn=_clamp_prediction,
+            )
+            print(
+                f"{version} | -> Updated predicted MEDIANCUT={predicted_medcut:.2f} MB "
+                f"| scale={state.scale:.3f}"
+            )
+
+    can_soft_preshrink_stats = (
+        iteration == 0
+        and source == "stats"
+        and gif_cfg.prediction.stats_risky_preshrink_enabled
+        and colors_first >= gif_cfg.prediction.stats_risky_preshrink_min_palette
+        and predicted_medcut >= gif_cfg.targets.target_max_mb * gif_cfg.prediction.stats_risky_preshrink_trigger_ratio
+        and predicted_medcut <= gif_cfg.targets.target_max_mb * gif_cfg.prediction.stats_risky_preshrink_max_ratio
+        and fast_size > gif_cfg.targets.target_max_mb * 0.70
+    )
+    if can_soft_preshrink_stats:
+        suggested_scale = state.scale * (target_mid / predicted_medcut) ** 0.5 if predicted_medcut > 0 else state.scale
+        suggested_scale *= gif_cfg.prediction.stats_risky_preshrink_scale_factor
+
+        max_stats_step = state.scale * gif_cfg.prediction.stats_risky_preshrink_max_step_ratio
+        if abs(suggested_scale - state.scale) > max_stats_step:
+            direction = 1 if suggested_scale > state.scale else -1
+            suggested_scale = state.scale + direction * max_stats_step
+
+        if state.low_scale < suggested_scale < state.high_scale and abs(suggested_scale - state.scale) > 0.005:
+            debug_log("decision=soft_pre_shrink_stats | reason=iter0/risky_stats near upper bound")
+            state.scale = suggested_scale
+            print(f"{version} | [gif.adjust] | Soft pre-shrink (stats, iter 0) -> scale={state.scale:.3f}")
+            resized_frames_out, fast_size, fast_bytes = _run_fastoctree_trial(
+                iteration=iteration,
+                scale=state.scale,
+                frames_raw=frames_raw,
+                width=width,
+                height=height,
+                palette_limit=palette_limit,
+                durations=durations,
+                fast_cache=state.fast_cache,
+                version=version,
+                stage_tag="stats-corrected",
             )
             predicted_medcut = predict_medcut_size(
                 stats_mgr=stats_mgr,
