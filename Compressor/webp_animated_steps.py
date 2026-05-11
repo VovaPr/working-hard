@@ -91,7 +91,7 @@ def _run_encode_step(
     step_elapsed = time.time() - started_at
     bracket_str = f"{under_target_q}-{over_target_q}" if bracket_known else "none"
     print(
-        f"{local_version} | [webp.step] | step={step} q={quality} method={method_in_use} "
+        f"{local_version} | [webp.step] | step={step} | q={quality} method={method_in_use} "
         f"bracket={bracket_str} | elapsed={step_elapsed:.1f}s/{effective_max_seconds:.0f}s"
     )
 
