@@ -64,12 +64,12 @@ def persist_success_result(
 
     elapsed = time.time() - started_at
     print(
-        f"{local_version} | WEBP success: {init_size/1024:.2f} KB -> {result_size/1024:.2f} KB "
-        f"| Quality={quality} | Resized {resize_count} times"
+        f"{local_version} | [webp.success] {init_size/1024:.2f} KB -> {result_size/1024:.2f} KB "
+        f"| q={quality} resized={resize_count}"
     )
     if stats_mgr_webp:
-        print(f"{local_version} | WEBP animated stats total: {stats_mgr_webp.stats_count()} records")
-    print(f"{local_version} | Finished in {elapsed:.2f} sec")
+        print(f"{local_version} | [webp.success] stats={stats_mgr_webp.stats_count()} records")
+    print(f"{local_version} | [webp.success] done in {elapsed:.2f}s")
 
 
 def persist_best_effort(
@@ -96,8 +96,7 @@ def persist_best_effort(
 
     best_miss_pct = abs(best_effort_size - target_mid_bytes) / target_mid_bytes * 100
     print(
-        f"{local_version} | WEBP best-effort accept ({reason}) | "
-        f"q={best_effort_q} size={best_effort_size/1024:.2f} KB miss={best_miss_pct:.2f}%"
+        f"{local_version} | [webp.best] {reason} | q={best_effort_q} size={best_effort_size/1024:.2f} KB miss={best_miss_pct:.2f}%"
     )
 
     _save_step_stats(
@@ -116,8 +115,8 @@ def persist_best_effort(
 
     elapsed = time.time() - started_at
     print(
-        f"{local_version} | WEBP best-effort: {init_size/1024:.2f} KB -> {best_effort_size/1024:.2f} KB "
-        f"| Quality={best_effort_q} | Resized {resize_count} times"
+        f"{local_version} | [webp.best] {init_size/1024:.2f} KB -> {best_effort_size/1024:.2f} KB "
+        f"| q={best_effort_q} resized={resize_count}"
     )
-    print(f"{local_version} | Finished in {elapsed:.2f} sec")
+    print(f"{local_version} | [webp.best] done in {elapsed:.2f}s")
     return True

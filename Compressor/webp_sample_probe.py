@@ -36,7 +36,7 @@ def run_webp_sample_probe(*, frames, durations, quality, target_mid_bytes, frame
     try:
         probe_buf = save_webp_frames(sample_frames, sample_durations, quality, method=2)
     except Exception as e:
-        print(f"{local_version} | WEBP sample probe failed: {e}")
+        print(f"{local_version} | [webp.probe] failed: {e}")
         return None
     probe_elapsed = time.time() - probe_start
 
@@ -45,12 +45,12 @@ def run_webp_sample_probe(*, frames, durations, quality, target_mid_bytes, frame
     corrected_quality = _compute_corrected_quality(quality, predicted_full, target_mid_bytes)
 
     print(
-        f"{local_version} | WEBP sample probe | {sample_n}/{frame_count} frames | "
-        f"probe={probe_size / 1024:.1f} KB | predicted_full={predicted_full / 1024:.1f} KB | "
-        f"q={quality} -> q={corrected_quality} | probe_time={probe_elapsed:.1f}s"
+        f"{local_version} | [webp.probe] {sample_n}/{frame_count} frames "
+        f"| probe={probe_size / 1024:.1f} KB predicted={predicted_full / 1024:.1f} KB "
+        f"| q={quality} -> q={corrected_quality} | elapsed={probe_elapsed:.1f}s"
     )
 
     if corrected_quality is None or abs(corrected_quality - quality) < 3:
-        print(f"{local_version} | WEBP sample probe | quality change too small, keeping q={quality}")
+        print(f"{local_version} | [webp.probe] change too small | keeping q={quality}")
         return None
     return corrected_quality

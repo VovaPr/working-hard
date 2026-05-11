@@ -58,8 +58,8 @@ def resolve_runtime_settings(gif_cfg, frame_count, local_version, direct_final_f
     )
     if effective_max_seconds > gif_cfg.webp_file_max_seconds:
         print(
-            f"{local_version} | WEBP animated timeout: {effective_max_seconds:.0f}s "
-            f"(frame-adjusted for {frame_count} frames, base={gif_cfg.webp_file_max_seconds:.0f}s)"
+            f"{local_version} | [webp.startup] timeout={effective_max_seconds:.0f}s "
+            f"(frame-adjusted, frames={frame_count}, base={gif_cfg.webp_file_max_seconds:.0f}s)"
         )
 
     can_use_direct_fast = False
@@ -73,13 +73,12 @@ def resolve_runtime_settings(gif_cfg, frame_count, local_version, direct_final_f
     if direct_final_from_stats:
         direct_mode = webp_method_direct_fast if can_use_direct_fast else webp_method
         print(
-            f"{local_version} | WEBP animated direct-final enabled | "
-            f"known profile -> method={direct_mode}"
+            f"{local_version} | [webp.startup] direct-final enabled | method={direct_mode}"
         )
         if gif_cfg.webp_animated_direct_final_fast_enabled and not can_use_direct_fast:
             print(
-                f"{local_version} | WEBP direct-fast skipped | "
-                f"known={known_result_size_mb:.2f} MB, growth_limit={direct_fast_growth:.2f}x"
+                f"{local_version} | [webp.startup] direct-fast skipped | "
+                f"known={known_result_size_mb:.2f} MB growth_limit={direct_fast_growth:.2f}x"
             )
 
     return {
@@ -97,15 +96,15 @@ def encode_with_fallback(frames, durations, quality, method_in_use, local_versio
         fallback_method = 0
         fallback_quality = max(1, min(100, quality))
         print(
-            f"{local_version} | WEBP animated config error: {e} "
-            f"| retry with q={fallback_quality}, method={fallback_method}"
+            f"{local_version} | [webp.encode] config error: {e} "
+            f"| retry q={fallback_quality} method={fallback_method}"
         )
         try:
             encoded_buf = save_webp_frames(frames, durations, fallback_quality, method=fallback_method)
             quality = fallback_quality
             method_in_use = fallback_method
         except ValueError as e2:
-            print(f"{local_version} | WEBP animated encode failed: {e2}; file kept unchanged")
+            print(f"{local_version} | [webp.encode] failed: {e2} | file unchanged")
             return None, quality, method_in_use
 
     return encoded_buf, quality, method_in_use
@@ -134,14 +133,12 @@ def maybe_fallback_from_direct_fast(
     if direct_final_this_step and method_in_use != webp_method:
         if target_min_bytes <= encoded_size <= target_max_bytes:
             print(
-                f"{local_version} | WEBP direct-fast accepted | "
-                f"Size={encoded_size/1024:.2f} KB | method={method_in_use}"
+                f"{local_version} | [webp.direct] accepted | size={encoded_size/1024:.2f} KB | method={method_in_use}"
             )
             return effective_size, effective_buf, effective_method, fallback_elapsed
 
         print(
-            f"{local_version} | WEBP direct-fast miss | "
-            f"Size={encoded_size/1024:.2f} KB -> fallback method={webp_method}"
+            f"{local_version} | [webp.direct] miss | size={encoded_size/1024:.2f} KB -> fallback method={webp_method}"
         )
         fallback_start = time.time()
         try:
@@ -150,8 +147,7 @@ def maybe_fallback_from_direct_fast(
         except ValueError as e:
             fallback_method = 0
             print(
-                f"{local_version} | WEBP direct-fast fallback error: {e} "
-                f"| retry with method={fallback_method}"
+                f"{local_version} | [webp.direct] fallback error: {e} | retry method={fallback_method}"
             )
             final_buf = save_webp_frames(frames, durations, quality, method=fallback_method)
             final_method = fallback_method
@@ -162,8 +158,7 @@ def maybe_fallback_from_direct_fast(
         effective_buf = final_buf
         effective_method = final_method
         print(
-            f"{local_version} | WEBP direct-fast fallback result | "
-            f"Size={final_size/1024:.2f} KB | method={final_method} | fallback={fallback_elapsed:.2f} sec"
+            f"{local_version} | [webp.direct] fallback result | size={final_size/1024:.2f} KB method={final_method} | elapsed={fallback_elapsed:.2f}s"
         )
 
     return effective_size, effective_buf, effective_method, fallback_elapsed

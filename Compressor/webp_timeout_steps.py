@@ -68,11 +68,10 @@ def _persist_timeout_rescue_success(
 
     total_elapsed = time.time() - started_at
     print(
-        f"{local_version} | WEBP success (timeout-rescue): "
-        f"{init_size/1024:.2f} KB -> {rescue_size/1024:.2f} KB "
-        f"| Quality={rescue_q} | method={rescue_method}"
+        f"{local_version} | [webp.timeout] rescued | {init_size/1024:.2f} KB -> {rescue_size/1024:.2f} KB "
+        f"| q={rescue_q} method={rescue_method}"
     )
-    print(f"{local_version} | Finished in {total_elapsed:.2f} sec")
+    print(f"{local_version} | [webp.timeout] done in {total_elapsed:.2f}s")
 
 
 def try_timeout_rescue(
@@ -111,8 +110,7 @@ def try_timeout_rescue(
             target_max_bytes=target_max_bytes,
         )
         print(
-            f"{local_version} | WEBP timeout-rescue | "
-            f"bracket={under_target_q}-{over_target_q} -> verify q={rescue_q}"
+            f"{local_version} | [webp.timeout] bracket={under_target_q}-{over_target_q} -> verify q={rescue_q}"
         )
 
         rescue_buf, rescue_method, rescue_size, rescue_elapsed = _encode_rescue_candidate(
@@ -142,7 +140,6 @@ def try_timeout_rescue(
             return True
 
     print(
-        f"{local_version} | WEBP animated timeout {elapsed:.2f} sec; "
-        f"file kept unchanged"
+        f"{local_version} | [webp.timeout] elapsed={elapsed:.2f}s | no rescue | file unchanged"
     )
     return True

@@ -50,7 +50,7 @@ def _resolve_animation_startup(
         target_mid_bytes,
         gif_cfg,
     )
-    print(f"{local_version} | Prediction source: {source} -> initial quality={quality}")
+    print(f"{local_version} | [webp.startup] prediction={source} | q={quality}")
 
     runtime = resolve_runtime_settings(
         gif_cfg,
@@ -89,8 +89,7 @@ def _run_encode_step(
     step_elapsed = time.time() - started_at
     bracket_str = f"{under_target_q}-{over_target_q}" if bracket_known else "none"
     print(
-        f"{local_version} | WEBP animated step {step} | "
-        f"Encoding... (q={quality}, method={method_in_use}) | "
+        f"{local_version} | [webp.step] step={step} q={quality} method={method_in_use} "
         f"bracket={bracket_str} | elapsed={step_elapsed:.1f}s/{effective_max_seconds:.0f}s"
     )
 
@@ -125,8 +124,7 @@ def _run_encode_step(
     step_encode_elapsed += fallback_elapsed
 
     print(
-        f"{local_version} | WEBP animated step {step} | "
-        f"Size={effective_size/1024:.2f} KB | encode={step_encode_elapsed:.2f} sec"
+        f"{local_version} | [webp.step] step={step} | size={effective_size/1024:.2f} KB | encode={step_encode_elapsed:.2f}s"
     )
     return {
         "quality": quality,
@@ -162,8 +160,8 @@ def _persist_success(
     target_max_bytes,
 ):
     print(
-        f"{local_version} | WEBP animated success check: "
-        f"size={effective_size/1024:.2f} KB in range [{target_min_bytes/1024:.2f}, {target_max_bytes/1024:.2f}] KB"
+        f"{local_version} | [webp.success] size={effective_size/1024:.2f} KB "
+        f"| target=[{target_min_bytes/1024:.2f}, {target_max_bytes/1024:.2f}] KB"
     )
     persist_success_result(
         path=path,
@@ -202,7 +200,7 @@ def _update_quality_bracket(*, under_target_q, over_target_q, effective_size, qu
         if under_target_q is not None and over_target_q is not None
         else f"under={under_target_q} over={over_target_q}"
     )
-    print(f"{local_version} | _update_quality_bracket | {bracket}")
+    print(f"{local_version} | [webp.bracket] {bracket}")
     return under_target_q, over_target_q
 
 
@@ -281,8 +279,7 @@ def _try_near_target_nudge(
     )
     next_quality = min(100, quality + nudge_step) if effective_size < target_min_bytes else max(45, quality - nudge_step)
     print(
-        f"{local_version} | _try_near_target_nudge | "
-        f"miss={miss_ratio*100:.2f}% step={nudge_step} | q={quality} -> q={next_quality}"
+        f"{local_version} | [webp.nudge] miss={miss_ratio*100:.2f}% step={nudge_step} | q={quality} -> q={next_quality}"
     )
     return next_quality
 
@@ -307,9 +304,8 @@ def _try_resize_fallback(*, quality, effective_size, target_mid_bytes, frames, r
     initial_quality = max(45, min(95, int(quality * q_correction)))
 
     print(
-        f"{local_version} | _try_resize_fallback | {old_w}x{old_h} -> {new_w}x{new_h} "
-        f"(area={area_ratio:.2f}) | estimated={estimated_new_size/1024:.0f} KB "
-        f"| q={quality} -> q={initial_quality}"
+        f"{local_version} | [webp.resize] {old_w}x{old_h} -> {new_w}x{new_h} area={area_ratio:.2f} "
+        f"| estimated={estimated_new_size/1024:.0f} KB | q={quality} -> q={initial_quality}"
     )
     return resized_frames, new_resize_count, initial_quality, None, None
 
@@ -327,7 +323,7 @@ def _resolve_next_quality(*, under_target_q, over_target_q, quality, effective_s
     if under_target_q is not None and over_target_q is not None and over_target_q - under_target_q > 1:
         next_quality = (under_target_q + over_target_q) // 2
         print(
-            f"{local_version} | _resolve_next_quality | binary-search | "
+            f"{local_version} | [webp.bracket] binary-search | "
             f"under_q={under_target_q} over_q={over_target_q} -> q={next_quality}"
         )
         return next_quality
@@ -338,8 +334,7 @@ def _resolve_next_quality(*, under_target_q, over_target_q, quality, effective_s
     if over_target_q is not None:
         proposed_quality = min(proposed_quality, over_target_q - 1)
     print(
-        f"{local_version} | _resolve_next_quality | ratio-correction | "
-        f"q={quality} correction={correction:.3f} -> q={proposed_quality}"
+        f"{local_version} | [webp.bracket] ratio-correction | q={quality} correction={correction:.3f} -> q={proposed_quality}"
     )
     return proposed_quality
 
@@ -634,7 +629,6 @@ def _persist_max_iterations(
         return True
 
     print(
-        f"{local_version} | вљ  WEBP animated max iterations reached; "
-        f"file kept unchanged ({final_msg})"
+        f"{local_version} | [webp.best] max-iter | file unchanged | {final_msg}"
     )
     return False
