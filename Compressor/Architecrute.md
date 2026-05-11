@@ -1,4 +1,4 @@
-# Compressor GIF Architecture (v2.0.28)
+# Compressor GIF Architecture (v2.0.29)
 
 This document describes the current compression architecture inside the Compressor folder.
 
@@ -257,7 +257,7 @@ The prediction system estimates the MEDIANCUT output size given the current scal
 initial scale at startup. Four sources are tried in priority order:
 
 1. **stats** (`average_scale_recent`): Exact match on palette + WxH + frames, time-decay weighted.
-   Most reliable — used directly as initial scale.
+   Most reliable ï¿½ used directly as initial scale.
 2. **neighbor stats** (`neighbor_scale_profile`): Nearest neighbor in historical stats.
    Safety factor applied: `neighbor_scale_safety = 0.95`, or `neighbor_scale_safety_confident
    = 0.985` when neighbor count >= 4 and std <= 0.035. A floor based on init-size ratio is enforced.
