@@ -1,4 +1,4 @@
-# Compressor GIF Architecture (v2.0.23)
+# Compressor GIF Architecture (v2.0.26)
 
 This document describes the current GIF compression architecture inside the Compressor folder.
 
@@ -6,8 +6,10 @@ This document describes the current GIF compression architecture inside the Comp
 
 1. `gif_compress.py` starts GIF processing and controls the main iteration loop.
 2. `gif_balanced_steps.py` orchestrates one iteration.
-3. `gif_prepare_medcut.py` executes FASTOCTREE trial and preparation logic.
-4. `gif_complete_medcut.py` executes MEDIANCUT completion logic and final decisions.
+3. `gif_prepare_medcut.py` is a thin facade for prepare stage.
+4. `gif_prepare_pipeline.py` executes FASTOCTREE trial and pre-MEDIANCUT decisions.
+5. `gif_complete_medcut.py` is a thin facade for complete stage.
+6. `gif_complete_pipeline.py` executes MEDIANCUT completion logic and final decisions.
 
 ## Module Hierarchy (Visual)
 
@@ -24,7 +26,9 @@ Compressor GIF Pipeline
 |       +-- routes: prepare -> complete
 |
 +-- Prepare Stage
-|   +-- gif_prepare_medcut.py
+|   +-- gif_prepare_medcut.py (facade)
+|       +-- delegates to gif_prepare_pipeline.py
+|   +-- gif_prepare_pipeline.py
 |       +-- uses gif_probe.py (FASTOCTREE trial)
 |       +-- uses gif_skip_logic.py (hard/under-target skip)
 |       +-- uses gif_sample_probe.py (sample calibration)
@@ -33,15 +37,25 @@ Compressor GIF Pipeline
 |       +-- uses gif_stats.py (historical deltas)
 |
 +-- Complete Stage
-|   +-- gif_complete_medcut.py
+|   +-- gif_complete_medcut.py (facade)
+|       +-- delegates to gif_complete_pipeline.py
+|   +-- gif_complete_pipeline.py
 |       +-- uses gif_medcut_step.py (MEDIANCUT execution + cache)
 |       +-- uses gif_balanced_temporal.py (temporal retry)
 |       +-- uses gif_balanced_result.py (success finalize/save)
 |       +-- uses gif_complete_utils.py (FAST-only fallback scale)
 |       +-- uses gif_scale.py (next-scale progression)
 |
++-- WEBP Animated Stage
+|   +-- webp_compress.py (facade/orchestrator)
+|       +-- delegates animated heavy logic to webp_animated_pipeline.py
+|   +-- webp_animated_pipeline.py
+|       +-- uses webp_loop_steps.py for iteration helpers
+|       +-- runs bracketed quality search and timeout/best-effort logic
+|
 +-- Shared Core
-  +-- gif_ops.py (low-level frame and encoding primitives)
+    +-- gif_ops.py (low-level frame and encoding primitives)
+    +-- webp_stats.py (animated WEBP stats)
 ```
 
 ### Quick Dependency Map
@@ -50,18 +64,25 @@ Compressor GIF Pipeline
 gif_compress.py
   -> gif_balanced_steps.py
     -> gif_prepare_medcut.py
-      -> gif_probe.py -> gif_ops.py
-      -> gif_skip_logic.py
-      -> gif_sample_probe.py -> gif_ops.py
-      -> gif_adjustments.py
-      -> compressor_gif_runtime.py
-      -> gif_stats.py
+      -> gif_prepare_pipeline.py
+        -> gif_probe.py -> gif_ops.py
+        -> gif_skip_logic.py
+        -> gif_sample_probe.py -> gif_ops.py
+        -> gif_adjustments.py
+        -> compressor_gif_runtime.py
+        -> gif_stats.py
     -> gif_complete_medcut.py
-      -> gif_medcut_step.py -> gif_ops.py
-      -> gif_balanced_temporal.py
-      -> gif_balanced_result.py
-      -> gif_complete_utils.py
-      -> gif_scale.py
+      -> gif_complete_pipeline.py
+        -> gif_medcut_step.py -> gif_ops.py
+        -> gif_balanced_temporal.py
+        -> gif_balanced_result.py
+        -> gif_complete_utils.py
+        -> gif_scale.py
+
+webp_compress.py
+  -> webp_animated_pipeline.py
+    -> webp_loop_steps.py
+    -> webp_stats.py
 ```
 
 ## Module Responsibilities
@@ -78,6 +99,9 @@ gif_compress.py
 ### Prepare Stage
 
 - `gif_prepare_medcut.py`
+  - Thin facade module.
+  - Re-exports prepare entrypoint used by orchestrator.
+- `gif_prepare_pipeline.py`
   - Runs FASTOCTREE trial.
   - Calculates MEDIANCUT prediction.
   - Applies skip/probe/adjust decisions before MEDIANCUT execution.
@@ -96,6 +120,9 @@ Supporting helpers used by prepare stage:
 ### Completion Stage
 
 - `gif_complete_medcut.py`
+  - Thin facade module.
+  - Re-exports completion entrypoint used by orchestrator.
+- `gif_complete_pipeline.py`
   - Runs MEDIANCUT step.
   - Applies overhead guard behavior.
   - Routes to temporal retry, quality retry, success finalize, or scale advance.
@@ -123,14 +150,27 @@ Supporting helpers used by completion stage:
 - `gif_ops.py`
   - Low-level frame/encoding operations and utility primitives.
 
+### WEBP Animated Pipeline
+
+- `webp_compress.py`
+  - Public entrypoint for animated WEBP compression in the launcher flow.
+  - Handles file open/decode and delegates animated loop.
+- `webp_animated_pipeline.py`
+  - Heavy animated WEBP quality-bracketing loop.
+  - Timeout rescue and best-effort persist logic.
+- `webp_loop_steps.py`
+  - Per-step helpers for encode/fallback/persist/runtime settings.
+
 ## Dependency Shape (Simplified)
 
 - FASTOCTREE path:
-  - `gif_prepare_medcut.py` -> `gif_probe.py` -> `gif_ops.py`
+  - `gif_prepare_medcut.py` -> `gif_prepare_pipeline.py` -> `gif_probe.py` -> `gif_ops.py`
 - MEDIANCUT path:
-  - `gif_complete_medcut.py` -> `gif_medcut_step.py` -> `gif_ops.py`
+  - `gif_complete_medcut.py` -> `gif_complete_pipeline.py` -> `gif_medcut_step.py` -> `gif_ops.py`
 - Prediction and decision path:
-  - `gif_prepare_medcut.py` -> `compressor_gif_runtime.py` + `gif_stats.py`
+  - `gif_prepare_pipeline.py` -> `compressor_gif_runtime.py` + `gif_stats.py`
+- Animated WEBP path:
+  - `webp_compress.py` -> `webp_animated_pipeline.py` -> `webp_loop_steps.py`
 
 ## Runtime Invariants
 
