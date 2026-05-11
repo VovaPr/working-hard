@@ -11,12 +11,6 @@ This document describes the current compression architecture inside the Compress
 - Worker strategy is fixed for now: do not tune worker count; keep `max(1, (cpu_count // 2))`.
 - Performance experiments must focus on prediction/iteration logic, not worker parallelism.
 
-## Current Decision (May 2026)
-
-- Preferred next optimization path: variant 3 (more conservative scale correction for risky `stats` source cases).
-- Apply only under strict guards (high palette and predicted value near/over upper bound) to avoid quality regressions.
-- Keep this as logic-level optimization with feature flag rollout; workers remain unchanged.
-
 ## Quick Structure
 
 ```text
