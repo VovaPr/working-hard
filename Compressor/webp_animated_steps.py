@@ -202,7 +202,7 @@ def _update_quality_bracket(*, under_target_q, over_target_q, effective_size, qu
         if under_target_q is not None and over_target_q is not None
         else f"under={under_target_q} over={over_target_q}"
     )
-    print(f"{local_version} | WEBP animated bracket update | {bracket}")
+    print(f"{local_version} | _update_quality_bracket | {bracket}")
     return under_target_q, over_target_q
 
 
@@ -281,8 +281,8 @@ def _try_near_target_nudge(
     )
     next_quality = min(100, quality + nudge_step) if effective_size < target_min_bytes else max(45, quality - nudge_step)
     print(
-        f"{local_version} | WEBP animated near-target nudge | "
-        f"miss={miss_ratio*100:.2f}% | step={nudge_step} -> next_q={next_quality}"
+        f"{local_version} | _try_near_target_nudge | "
+        f"miss={miss_ratio*100:.2f}% step={nudge_step} | q={quality} -> q={next_quality}"
     )
     return next_quality
 
@@ -291,14 +291,27 @@ def _try_resize_fallback(*, quality, effective_size, target_mid_bytes, frames, r
     if quality > 45:
         return None
 
-    correction = (target_mid_bytes / effective_size) ** 0.5
-    correction = max(0.88, min(1.12, correction))
-    new_w = max(1, int(frames[0].width * correction))
-    new_h = max(1, int(frames[0].height * correction))
+    old_w, old_h = frames[0].width, frames[0].height
+    dim_correction = (target_mid_bytes / effective_size) ** 0.5
+    dim_correction = max(0.80, min(0.95, dim_correction))
+    new_w = max(64, int(old_w * dim_correction))
+    new_h = max(64, int(old_h * dim_correction))
     resized_frames = [fr.resize((new_w, new_h), Image.LANCZOS) for fr in frames]
     new_resize_count = resize_count + 1
-    print(f"{local_version} | WEBP step {new_resize_count} | Resized to {new_w}x{new_h}, reset quality=95")
-    return resized_frames, new_resize_count, 95, None, None
+
+    # Estimate size after resize and compute quality that should land near target.
+    # Resize reduces area, so encoded size scales roughly with area ratio.
+    area_ratio = (new_w * new_h) / max(1, old_w * old_h)
+    estimated_new_size = effective_size * area_ratio
+    q_correction = (target_mid_bytes / max(1, estimated_new_size)) ** 0.5
+    initial_quality = max(45, min(95, int(quality * q_correction)))
+
+    print(
+        f"{local_version} | _try_resize_fallback | {old_w}x{old_h} -> {new_w}x{new_h} "
+        f"(area={area_ratio:.2f}) | estimated={estimated_new_size/1024:.0f} KB "
+        f"| q={quality} -> q={initial_quality}"
+    )
+    return resized_frames, new_resize_count, initial_quality, None, None
 
 
 def _resolve_next_quality(*, under_target_q, over_target_q, quality, effective_size, target_mid_bytes, local_version):
@@ -314,8 +327,8 @@ def _resolve_next_quality(*, under_target_q, over_target_q, quality, effective_s
     if under_target_q is not None and over_target_q is not None and over_target_q - under_target_q > 1:
         next_quality = (under_target_q + over_target_q) // 2
         print(
-            f"{local_version} | WEBP animated bracket | under_q={under_target_q}, "
-            f"over_q={over_target_q} -> next_q={next_quality}"
+            f"{local_version} | _resolve_next_quality | binary-search | "
+            f"under_q={under_target_q} over_q={over_target_q} -> q={next_quality}"
         )
         return next_quality
 
@@ -324,6 +337,10 @@ def _resolve_next_quality(*, under_target_q, over_target_q, quality, effective_s
         proposed_quality = max(proposed_quality, under_target_q + 1)
     if over_target_q is not None:
         proposed_quality = min(proposed_quality, over_target_q - 1)
+    print(
+        f"{local_version} | _resolve_next_quality | ratio-correction | "
+        f"q={quality} correction={correction:.3f} -> q={proposed_quality}"
+    )
     return proposed_quality
 
 
@@ -492,7 +509,6 @@ def _pick_next_quality(
         target_mid_bytes=target_mid_bytes,
         local_version=local_version,
     )
-    print(f"{local_version} | WEBP step {state['resize_count']+1} | Quality={state['quality']}")
     return "continue"
 
 
