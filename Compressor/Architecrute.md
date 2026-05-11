@@ -1,4 +1,4 @@
-# Compressor GIF Architecture (v2.0.44)
+# Compressor GIF Architecture (v2.0.45)
 
 This document describes the current compression architecture inside the Compressor folder.
 
@@ -260,6 +260,8 @@ Supporting helpers used by completion stage:
   - Centralized artifact manager for runtime files (stats JSON, temp directories).
   - Provides abstract interface for I/O operations (load/save stats).
   - Singleton pattern for global access.
+  - Stats file versioning: schema version 1 embedded in JSON metadata.
+  - Future: File rotation when stats exceed 5 MB (see /memories/repo/stats-rotation-todo.md).
 - `scale_strategy.py`
   - Unified scale calculation: geometric mean formula, step capping, bracket clamping.
   - Used by skip logic, complete stage, and FAST-only search.
