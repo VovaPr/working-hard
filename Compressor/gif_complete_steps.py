@@ -21,6 +21,51 @@ def _record_prediction_and_guard_signature(*, state, med_size, predicted_medcut,
         debug_log("stall_guard=active | repeated (scale, med_size) signature")
 
 
+def _act_on_overhead_guard(
+    *,
+    iteration,
+    state,
+    med_input,
+    frames_raw,
+    durations,
+    width,
+    height,
+    palette_limit,
+    total_frames,
+    colors_first,
+    init_size,
+    input_path,
+    stats_mgr,
+    gif_cfg,
+    started_at,
+    version,
+):
+    if is_in_target_range(med_input["fast_size"], gif_cfg):
+        fast_saved_size = len(med_input["fast_bytes"]) / (1024 * 1024)
+        stats_mgr.save_stats(palette_limit, width, height, total_frames, med_input["fast_size"], fast_saved_size, state.scale)
+        print(f"{version} | [gif.guard] Repeated MEDIANCUT overhead is too high; using FASTOCTREE because it is already in target")
+        _save_success_result(
+            input_path=input_path,
+            output_bytes=med_input["fast_bytes"],
+            init_size=init_size,
+            result_size=fast_saved_size,
+            iteration=iteration,
+            started_at=started_at,
+            total_frames=total_frames,
+            colors_first=colors_first,
+            width=width,
+            height=height,
+            version=version,
+            success_label="fast-guard-target",
+        )
+        return {"status": "done", "done": True, "frames_raw": frames_raw, "durations": durations, "total_frames": total_frames}
+
+    print(f"{version} | [gif.guard] Repeated MEDIANCUT overhead is too high; FASTOCTREE is outside target, switching to FAST-only search")
+    state.medcut_disabled = True
+    state.medcut_overhead_hits = 0
+    return {"status": "done", "done": False, "frames_raw": frames_raw, "durations": durations, "total_frames": total_frames}
+
+
 def _handle_overhead_guard(
     *,
     iteration,
@@ -54,62 +99,115 @@ def _handle_overhead_guard(
     else:
         state.medcut_overhead_hits = 0
 
-    if not (
+    guard_triggered = (
         gif_cfg.medcut_overhead_guard_enabled
         and state.medcut_overhead_hits >= gif_cfg.medcut_overhead_guard_max_hits
-    ):
+    )
+    if not guard_triggered:
         return {"status": "pass"}
 
-    if is_in_target_range(med_input["fast_size"], gif_cfg):
-        fast_saved_size = len(med_input["fast_bytes"]) / (1024 * 1024)
-        stats_mgr.save_stats(
-            palette_limit,
-            width,
-            height,
-            total_frames,
-            med_input["fast_size"],
-            fast_saved_size,
-            state.scale,
-        )
-        print(
-            f"{version} | [gif.guard] Repeated MEDIANCUT overhead is too high; "
-            f"using FASTOCTREE because it is already in target"
-        )
-        _save_success_result(
+    return _act_on_overhead_guard(
+        iteration=iteration,
+        state=state,
+        med_input=med_input,
+        frames_raw=frames_raw,
+        durations=durations,
+        width=width,
+        height=height,
+        palette_limit=palette_limit,
+        total_frames=total_frames,
+        colors_first=colors_first,
+        init_size=init_size,
+        input_path=input_path,
+        stats_mgr=stats_mgr,
+        gif_cfg=gif_cfg,
+        started_at=started_at,
+        version=version,
+    )
+
+
+def _finalize_or_advance_scale(
+    *,
+    iteration,
+    state,
+    in_target,
+    in_preferred_corridor,
+    med_size,
+    med_bytes,
+    med_input,
+    frames_raw,
+    durations,
+    width,
+    height,
+    palette_limit,
+    total_frames,
+    colors_first,
+    init_size,
+    input_path,
+    stats_mgr,
+    executor,
+    workers,
+    target_mid,
+    small_res_high_frames,
+    gif_cfg,
+    started_at,
+    version,
+):
+    if _try_quality_retry(
+        iteration=iteration,
+        in_target=in_target,
+        small_res_high_frames=small_res_high_frames,
+        med_size=med_size,
+        target_mid=target_mid,
+        frames_raw=frames_raw,
+        durations=durations,
+        width=width,
+        height=height,
+        palette_limit=palette_limit,
+        executor=executor,
+        workers=workers,
+        gif_cfg=gif_cfg,
+        state=state,
+        stats_mgr=stats_mgr,
+        total_frames=total_frames,
+        fast_size=med_input["fast_size"],
+        input_path=input_path,
+        init_size=init_size,
+        started_at=started_at,
+        colors_first=colors_first,
+        version=version,
+    ):
+        return {"done": True, "frames_raw": frames_raw, "durations": durations, "total_frames": total_frames}
+
+    if in_preferred_corridor or in_target:
+        _finalize_medcut_success(
             input_path=input_path,
-            output_bytes=med_input["fast_bytes"],
-            init_size=init_size,
-            result_size=fast_saved_size,
-            iteration=iteration,
-            started_at=started_at,
-            total_frames=total_frames,
-            colors_first=colors_first,
+            stats_mgr=stats_mgr,
+            palette_limit=palette_limit,
             width=width,
             height=height,
+            total_frames=total_frames,
+            colors_first=colors_first,
+            fast_size=med_input["fast_size"],
+            med_size=med_size,
+            med_bytes=med_bytes,
+            state=state,
+            init_size=init_size,
+            iteration=iteration,
+            started_at=started_at,
             version=version,
-            success_label="fast-guard-target",
         )
-        return {
-            "status": "done",
-            "done": True,
-            "frames_raw": frames_raw,
-            "durations": durations,
-            "total_frames": total_frames,
-        }
+        return {"done": True, "frames_raw": frames_raw, "durations": durations, "total_frames": total_frames}
 
-    print(
-        f"{version} | [gif.guard] Repeated MEDIANCUT overhead is too high; "
-        f"FASTOCTREE is outside target, switching to FAST-only search"
+    _advance_scale_after_medcut(
+        state=state,
+        med_size=med_size,
+        target_mid=target_mid,
+        gif_cfg=gif_cfg,
+        med_cache=state.med_cache,
+        version=version,
     )
-    state.medcut_disabled = True
-    state.medcut_overhead_hits = 0
-    return {
-        "status": "done",
-        "done": False,
-        "frames_raw": frames_raw,
-        "durations": durations,
-        "total_frames": total_frames,
-    }
+    return {"done": False, "frames_raw": frames_raw, "durations": durations, "total_frames": total_frames}
 
 
 def _resolve_temporal_quality_or_finalize(
@@ -161,12 +259,7 @@ def _resolve_temporal_quality_or_finalize(
     )
     if temporal_result["handled"]:
         if temporal_result["succeeded"]:
-            return {
-                "done": True,
-                "frames_raw": frames_raw,
-                "durations": durations,
-                "total_frames": total_frames,
-            }
+            return {"done": True, "frames_raw": frames_raw, "durations": durations, "total_frames": total_frames}
         return {
             "done": False,
             "frames_raw": temporal_result["frames_raw"],
@@ -176,74 +269,29 @@ def _resolve_temporal_quality_or_finalize(
 
     in_preferred_corridor = iteration >= 1 and is_in_preferred_range(med_size, gif_cfg)
     in_target = is_in_target_range(med_size, gif_cfg)
-
-    if _try_quality_retry(
+    return _finalize_or_advance_scale(
         iteration=iteration,
+        state=state,
         in_target=in_target,
-        small_res_high_frames=small_res_high_frames,
+        in_preferred_corridor=in_preferred_corridor,
         med_size=med_size,
-        target_mid=target_mid,
+        med_bytes=med_bytes,
+        med_input=med_input,
         frames_raw=frames_raw,
         durations=durations,
         width=width,
         height=height,
         palette_limit=palette_limit,
+        total_frames=total_frames,
+        colors_first=colors_first,
+        init_size=init_size,
+        input_path=input_path,
+        stats_mgr=stats_mgr,
         executor=executor,
         workers=workers,
-        gif_cfg=gif_cfg,
-        state=state,
-        stats_mgr=stats_mgr,
-        total_frames=total_frames,
-        fast_size=med_input["fast_size"],
-        input_path=input_path,
-        init_size=init_size,
-        started_at=started_at,
-        colors_first=colors_first,
-        version=version,
-    ):
-        return {
-            "done": True,
-            "frames_raw": frames_raw,
-            "durations": durations,
-            "total_frames": total_frames,
-        }
-
-    if in_preferred_corridor or in_target:
-        _finalize_medcut_success(
-            input_path=input_path,
-            stats_mgr=stats_mgr,
-            palette_limit=palette_limit,
-            width=width,
-            height=height,
-            total_frames=total_frames,
-            colors_first=colors_first,
-            fast_size=med_input["fast_size"],
-            med_size=med_size,
-            med_bytes=med_bytes,
-            state=state,
-            init_size=init_size,
-            iteration=iteration,
-            started_at=started_at,
-            version=version,
-        )
-        return {
-            "done": True,
-            "frames_raw": frames_raw,
-            "durations": durations,
-            "total_frames": total_frames,
-        }
-
-    _advance_scale_after_medcut(
-        state=state,
-        med_size=med_size,
         target_mid=target_mid,
+        small_res_high_frames=small_res_high_frames,
         gif_cfg=gif_cfg,
-        med_cache=state.med_cache,
+        started_at=started_at,
         version=version,
     )
-    return {
-        "done": False,
-        "frames_raw": frames_raw,
-        "durations": durations,
-        "total_frames": total_frames,
-    }

@@ -335,10 +335,13 @@ def _build_animation_state(*, startup, frames):
     }
 
 
-def _handle_iteration_outcome(
+def _check_early_exits(
     *,
     state,
-    step_result,
+    effective_size,
+    effective_buf,
+    effective_method,
+    step_encode_elapsed,
     durations,
     path,
     init_size,
@@ -353,38 +356,6 @@ def _handle_iteration_outcome(
     height,
     frame_count,
 ):
-    state["quality"] = step_result["quality"]
-    effective_size = step_result["effective_size"]
-    effective_buf = step_result["effective_buf"]
-    effective_method = step_result["effective_method"]
-    step_encode_elapsed = step_result["step_encode_elapsed"]
-    bracket_known = step_result["bracket_known"]
-
-    if _is_in_target_range(
-        effective_size=effective_size,
-        target_min_bytes=target_min_bytes,
-        target_max_bytes=target_max_bytes,
-    ):
-        _persist_success(
-            path=path,
-            effective_buf=effective_buf,
-            effective_size=effective_size,
-            init_size=init_size,
-            quality=state["quality"],
-            effective_method=effective_method,
-            resize_count=state["resize_count"],
-            local_version=local_version,
-            started_at=started_at,
-            stats_mgr_webp=stats_mgr_webp,
-            width=width,
-            height=height,
-            frame_count=frame_count,
-            step_encode_elapsed=step_encode_elapsed,
-            target_min_bytes=target_min_bytes,
-            target_max_bytes=target_max_bytes,
-        )
-        return "done"
-
     _update_best_effort(
         best_effort=state["best_effort"],
         effective_size=effective_size,
@@ -447,6 +418,20 @@ def _handle_iteration_outcome(
     ):
         return "done"
 
+    return None
+
+
+def _pick_next_quality(
+    *,
+    state,
+    effective_size,
+    bracket_known,
+    target_min_bytes,
+    target_max_bytes,
+    target_mid_bytes,
+    gif_cfg,
+    local_version,
+):
     nudged_quality = _try_near_target_nudge(
         effective_size=effective_size,
         target_mid_bytes=target_mid_bytes,
@@ -483,6 +468,91 @@ def _handle_iteration_outcome(
     )
     print(f"{local_version} | WEBP step {state['resize_count']+1} | Quality={state['quality']}")
     return "continue"
+
+
+def _handle_iteration_outcome(
+    *,
+    state,
+    step_result,
+    durations,
+    path,
+    init_size,
+    target_min_bytes,
+    target_max_bytes,
+    target_mid_bytes,
+    local_version,
+    gif_cfg,
+    started_at,
+    stats_mgr_webp,
+    width,
+    height,
+    frame_count,
+):
+    state["quality"] = step_result["quality"]
+    effective_size = step_result["effective_size"]
+    effective_buf = step_result["effective_buf"]
+    effective_method = step_result["effective_method"]
+    step_encode_elapsed = step_result["step_encode_elapsed"]
+    bracket_known = step_result["bracket_known"]
+
+    if _is_in_target_range(
+        effective_size=effective_size,
+        target_min_bytes=target_min_bytes,
+        target_max_bytes=target_max_bytes,
+    ):
+        _persist_success(
+            path=path,
+            effective_buf=effective_buf,
+            effective_size=effective_size,
+            init_size=init_size,
+            quality=state["quality"],
+            effective_method=effective_method,
+            resize_count=state["resize_count"],
+            local_version=local_version,
+            started_at=started_at,
+            stats_mgr_webp=stats_mgr_webp,
+            width=width,
+            height=height,
+            frame_count=frame_count,
+            step_encode_elapsed=step_encode_elapsed,
+            target_min_bytes=target_min_bytes,
+            target_max_bytes=target_max_bytes,
+        )
+        return "done"
+
+    early_exit = _check_early_exits(
+        state=state,
+        effective_size=effective_size,
+        effective_buf=effective_buf,
+        effective_method=effective_method,
+        step_encode_elapsed=step_encode_elapsed,
+        durations=durations,
+        path=path,
+        init_size=init_size,
+        target_min_bytes=target_min_bytes,
+        target_max_bytes=target_max_bytes,
+        target_mid_bytes=target_mid_bytes,
+        local_version=local_version,
+        gif_cfg=gif_cfg,
+        started_at=started_at,
+        stats_mgr_webp=stats_mgr_webp,
+        width=width,
+        height=height,
+        frame_count=frame_count,
+    )
+    if early_exit == "done":
+        return "done"
+
+    return _pick_next_quality(
+        state=state,
+        effective_size=effective_size,
+        bracket_known=bracket_known,
+        target_min_bytes=target_min_bytes,
+        target_max_bytes=target_max_bytes,
+        target_mid_bytes=target_mid_bytes,
+        gif_cfg=gif_cfg,
+        local_version=local_version,
+    )
 
 
 def _persist_max_iterations(
