@@ -200,6 +200,56 @@ def _probe_and_build_skip_decision(
     return predicted_medcut, should_probe_formula, should_probe_neighbor, skip_decision
 
 
+def _continue_predict_result(*, source_is_neighbor, predicted_medcut):
+    return {
+        "status": "continue",
+        "source_is_neighbor": source_is_neighbor,
+        "predicted_medcut": predicted_medcut,
+    }
+
+
+def _run_skip_checks(
+    *,
+    iteration,
+    source,
+    source_is_neighbor,
+    predicted_medcut,
+    fast_size,
+    target_mid,
+    bias_factor,
+    stats_mgr,
+    palette_limit,
+    width,
+    height,
+    total_frames,
+    state,
+    gif_cfg,
+    version,
+):
+    if _try_hard_skip(
+        iteration=iteration,
+        source=source,
+        source_is_neighbor=source_is_neighbor,
+        fast_size=fast_size,
+        state=state,
+        target_mid=target_mid,
+        bias_factor=bias_factor,
+        stats_mgr=stats_mgr,
+        palette_limit=palette_limit,
+        width=width,
+        height=height,
+        total_frames=total_frames,
+        gif_cfg=gif_cfg,
+        version=version,
+    ) is not None:
+        return _continue_predict_result(
+            source_is_neighbor=source_is_neighbor,
+            predicted_medcut=predicted_medcut,
+        )
+
+    return None
+
+
 def _predict_and_skip_stage(
     *,
     iteration,
@@ -236,12 +286,12 @@ def _predict_and_skip_stage(
     )
 
     source_is_neighbor = source.startswith("neighbor stats")
-    if _try_hard_skip(
+    early_skip = _run_skip_checks(
         iteration=iteration,
         source=source,
         source_is_neighbor=source_is_neighbor,
+        predicted_medcut=predicted_medcut,
         fast_size=fast_size,
-        state=state,
         target_mid=target_mid,
         bias_factor=bias_factor,
         stats_mgr=stats_mgr,
@@ -249,10 +299,12 @@ def _predict_and_skip_stage(
         width=width,
         height=height,
         total_frames=total_frames,
+        state=state,
         gif_cfg=gif_cfg,
         version=version,
-    ) is not None:
-        return {"status": "continue", "source_is_neighbor": source_is_neighbor, "predicted_medcut": predicted_medcut}
+    )
+    if early_skip is not None:
+        return early_skip
 
     predicted_medcut, _, _, skip_decision = _probe_and_build_skip_decision(
         iteration=iteration,
@@ -285,7 +337,10 @@ def _predict_and_skip_stage(
         version=version,
         debug_log=debug_log,
     ):
-        return {"status": "continue", "source_is_neighbor": source_is_neighbor, "predicted_medcut": predicted_medcut}
+        return _continue_predict_result(
+            source_is_neighbor=source_is_neighbor,
+            predicted_medcut=predicted_medcut,
+        )
 
     if _try_formula_under_target_skip(
         iteration=iteration,
@@ -297,7 +352,10 @@ def _predict_and_skip_stage(
         gif_cfg=gif_cfg,
         version=version,
     ) is not None:
-        return {"status": "continue", "source_is_neighbor": source_is_neighbor, "predicted_medcut": predicted_medcut}
+        return _continue_predict_result(
+            source_is_neighbor=source_is_neighbor,
+            predicted_medcut=predicted_medcut,
+        )
 
     return {"status": "ready", "predicted_medcut": predicted_medcut, "source_is_neighbor": source_is_neighbor}
 

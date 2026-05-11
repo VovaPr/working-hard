@@ -210,6 +210,34 @@ def _finalize_or_advance_scale(
     return {"done": False, "frames_raw": frames_raw, "durations": durations, "total_frames": total_frames}
 
 
+def _resolve_temporal_branch(
+    *,
+    temporal_result,
+    frames_raw,
+    durations,
+    total_frames,
+):
+    if not temporal_result["handled"]:
+        return None
+
+    if temporal_result["succeeded"]:
+        return {"done": True, "frames_raw": frames_raw, "durations": durations, "total_frames": total_frames}
+
+    return {
+        "done": False,
+        "frames_raw": temporal_result["frames_raw"],
+        "durations": temporal_result["durations"],
+        "total_frames": temporal_result["total_frames"],
+    }
+
+
+def _build_target_flags(*, iteration, med_size, gif_cfg):
+    return {
+        "in_preferred_corridor": iteration >= 1 and is_in_preferred_range(med_size, gif_cfg),
+        "in_target": is_in_target_range(med_size, gif_cfg),
+    }
+
+
 def _resolve_temporal_quality_or_finalize(
     *,
     iteration,
@@ -257,23 +285,25 @@ def _resolve_temporal_quality_or_finalize(
         colors_first=colors_first,
         version=version,
     )
-    if temporal_result["handled"]:
-        if temporal_result["succeeded"]:
-            return {"done": True, "frames_raw": frames_raw, "durations": durations, "total_frames": total_frames}
-        return {
-            "done": False,
-            "frames_raw": temporal_result["frames_raw"],
-            "durations": temporal_result["durations"],
-            "total_frames": temporal_result["total_frames"],
-        }
+    temporal_branch = _resolve_temporal_branch(
+        temporal_result=temporal_result,
+        frames_raw=frames_raw,
+        durations=durations,
+        total_frames=total_frames,
+    )
+    if temporal_branch is not None:
+        return temporal_branch
 
-    in_preferred_corridor = iteration >= 1 and is_in_preferred_range(med_size, gif_cfg)
-    in_target = is_in_target_range(med_size, gif_cfg)
+    target_flags = _build_target_flags(
+        iteration=iteration,
+        med_size=med_size,
+        gif_cfg=gif_cfg,
+    )
     return _finalize_or_advance_scale(
         iteration=iteration,
         state=state,
-        in_target=in_target,
-        in_preferred_corridor=in_preferred_corridor,
+        in_target=target_flags["in_target"],
+        in_preferred_corridor=target_flags["in_preferred_corridor"],
         med_size=med_size,
         med_bytes=med_bytes,
         med_input=med_input,

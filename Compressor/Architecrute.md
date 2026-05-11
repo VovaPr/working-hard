@@ -1,4 +1,4 @@
-# Compressor GIF Architecture (v2.0.29)
+# Compressor GIF Architecture (v2.0.30)
 
 This document describes the current compression architecture inside the Compressor folder.
 
@@ -6,7 +6,12 @@ This document describes the current compression architecture inside the Compress
 
 ```text
 Compressor.py
+  -> image_compress.py
+    -> image_static_pipeline.py
+      -> image_static_steps.py
   -> gif_compress.py
+    -> gif_main_pipeline.py
+      -> gif_main_steps.py
     -> gif_balanced_steps.py
       -> gif_prepare_medcut.py
         -> gif_prepare_pipeline.py
@@ -29,13 +34,17 @@ Compressor.py
     -> webp_animated_pipeline.py
       -> webp_animated_steps.py
         -> webp_loop_steps.py
+          -> webp_timeout_steps.py
+          -> webp_persist_steps.py
       -> webp_stats.py
 ```
 
 ### Short Reading Guide
 
-- Entry: `Compressor.py`, `gif_compress.py`, `webp_compress.py`
+- Entry: `Compressor.py`, `image_compress.py`, `gif_compress.py`, `webp_compress.py`
+- Static image orchestration: `image_static_pipeline.py`
 - GIF orchestration: `gif_balanced_steps.py`
+- GIF main orchestration: `gif_main_pipeline.py` -> `gif_main_steps.py`
 - GIF prepare path: facade `gif_prepare_medcut.py` -> pipeline `gif_prepare_pipeline.py` -> helpers `gif_prepare_steps.py`
 - GIF complete path: facade `gif_complete_medcut.py` -> pipeline `gif_complete_pipeline.py` -> helpers `gif_complete_steps.py`
 - WEBP animated path: facade `webp_compress.py` -> pipeline `webp_animated_pipeline.py` -> helpers `webp_animated_steps.py`
@@ -56,11 +65,19 @@ Compressor.py
 Compressor GIF Pipeline
 |
 +-- Entry Layer
+|   +-- image_compress.py
+|       +-- delegates static image flow to image_static_pipeline.py
 |   +-- gif_compress.py
-|       +-- starts GIF pipeline
-|       +-- owns iteration lifecycle
+|       +-- facade for GIF batch processing
+|       +-- delegates single-GIF flow to gif_main_pipeline.py
 |
 +-- Orchestration Layer
+|   +-- image_static_pipeline.py
+|       +-- routes PNG/JPG/static WEBP flows
+|       +-- delegates operation details to image_static_steps.py
+|   +-- gif_main_pipeline.py
+|       +-- owns single-GIF orchestration only
+|       +-- delegates runtime/decode/loop setup to gif_main_steps.py
 |   +-- gif_balanced_steps.py
 |       +-- routes: prepare -> complete
 |
@@ -100,17 +117,28 @@ Compressor GIF Pipeline
 |   +-- webp_animated_steps.py
 |       +-- uses webp_loop_steps.py for encode/persist/runtime helpers
 |       +-- runs bracketed quality search and timeout/best-effort logic
+|   +-- webp_loop_steps.py
+|       +-- startup/runtime/encode/direct-fast fallback helpers
+|       +-- delegates timeout rescue to webp_timeout_steps.py
+|       +-- delegates persistence to webp_persist_steps.py
 |
 +-- Shared Core
     +-- gif_ops.py (low-level frame and encoding primitives)
     +-- webp_stats.py (animated WEBP stats)
+  +-- image_static_steps.py (JPEG/WEBP static image primitives)
 ```
 
 ### Quick Dependency Map
 
 ```text
+image_compress.py
+  -> image_static_pipeline.py
+    -> image_static_steps.py
+
 gif_compress.py
-  -> gif_balanced_steps.py
+  -> gif_main_pipeline.py
+    -> gif_main_steps.py
+      -> gif_balanced_steps.py
     -> gif_prepare_medcut.py
       -> gif_prepare_pipeline.py
         -> gif_prepare_steps.py
@@ -133,6 +161,8 @@ webp_compress.py
   -> webp_animated_pipeline.py
     -> webp_animated_steps.py
       -> webp_loop_steps.py
+        -> webp_timeout_steps.py
+        -> webp_persist_steps.py
     -> webp_stats.py
 ```
 
@@ -140,9 +170,23 @@ webp_compress.py
 
 ### Entry and Orchestration
 
+- `image_compress.py`
+  - Facade for static image flow.
+  - Delegates to `image_static_pipeline.py`.
+- `image_static_pipeline.py`
+  - Orchestrates PNG/JPG/static WEBP paths.
+  - Delegates conversion/compression internals to `image_static_steps.py`.
+- `image_static_steps.py`
+  - Static JPEG/WEBP primitives and iterative compression helpers.
+
 - `gif_compress.py`
-  - Entrypoint for GIF pipeline.
-  - Handles decode/input normalization and iteration lifecycle.
+  - Batch entrypoint/facade for GIF and animated WEBP queues.
+  - Delegates single-GIF pipeline to `gif_main_pipeline.py`.
+- `gif_main_pipeline.py`
+  - Single-GIF orchestration layer.
+  - Delegates decode/runtime/loop setup to `gif_main_steps.py`.
+- `gif_main_steps.py`
+  - Decode, runtime-context initialization, and iteration loop execution.
 - `gif_balanced_steps.py`
   - Thin orchestrator for iteration stages.
   - Calls prepare stage, then completion stage.
@@ -220,7 +264,11 @@ Supporting helpers used by completion stage:
   - Contains encode-step execution, bracket updates, timeout handling, and best-effort persistence.
     - Second-level helpers: `_check_early_exits`, `_pick_next_quality`.
 - `webp_loop_steps.py`
-  - Lower-level encode/fallback/persist/runtime helpers reused by WEBP animated steps.
+  - Lower-level startup/runtime/encode/fallback helpers reused by WEBP animated steps.
+- `webp_timeout_steps.py`
+  - Timeout-rescue decision and persistence path.
+- `webp_persist_steps.py`
+  - Success and best-effort persistence helpers (with stats save).
 
 ## Dependency Shape (Simplified)
 
@@ -231,7 +279,7 @@ Supporting helpers used by completion stage:
 - Prediction and decision path:
   - `gif_prepare_pipeline.py` -> `gif_prepare_steps.py` -> `compressor_gif_runtime.py` + `gif_stats.py`
 - Animated WEBP path:
-  - `webp_compress.py` -> `webp_animated_pipeline.py` -> `webp_animated_steps.py` -> `webp_loop_steps.py`
+  - `webp_compress.py` -> `webp_animated_pipeline.py` -> `webp_animated_steps.py` -> `webp_loop_steps.py` -> (`webp_timeout_steps.py`, `webp_persist_steps.py`)
 
 ## Runtime Invariants
 
@@ -257,7 +305,7 @@ The prediction system estimates the MEDIANCUT output size given the current scal
 initial scale at startup. Four sources are tried in priority order:
 
 1. **stats** (`average_scale_recent`): Exact match on palette + WxH + frames, time-decay weighted.
-   Most reliable � used directly as initial scale.
+  Most reliable - used directly as initial scale.
 2. **neighbor stats** (`neighbor_scale_profile`): Nearest neighbor in historical stats.
    Safety factor applied: `neighbor_scale_safety = 0.95`, or `neighbor_scale_safety_confident
    = 0.985` when neighbor count >= 4 and std <= 0.035. A floor based on init-size ratio is enforced.
