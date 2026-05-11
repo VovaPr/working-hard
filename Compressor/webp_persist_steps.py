@@ -64,12 +64,53 @@ def persist_success_result(
 
     elapsed = time.time() - started_at
     print(
-        f"{local_version} | [webp.success] {init_size/1024:.2f} KB -> {result_size/1024:.2f} KB "
+        f"{local_version} | [webp.success] | {init_size/1024:.2f} KB -> {result_size/1024:.2f} KB "
         f"| q={quality} resized={resize_count}"
     )
     if stats_mgr_webp:
-        print(f"{local_version} | [webp.success] stats={stats_mgr_webp.stats_count()} records")
-    print(f"{local_version} | [webp.success] done in {elapsed:.2f}s")
+        print(f"{local_version} | [webp.success] | stats={stats_mgr_webp.stats_count()} records")
+    print(f"{local_version} | [webp.success] | done in {elapsed:.2f}s")
+
+
+def persist_success(
+    *,
+    path,
+    result_buf,
+    result_size,
+    init_size,
+    quality,
+    method,
+    resize_count,
+    local_version,
+    started_at,
+    stats_mgr_webp,
+    width,
+    height,
+    frame_count,
+    encode_elapsed,
+    target_min_bytes,
+    target_max_bytes,
+):
+    print(
+        f"{local_version} | [webp.success] | size={result_size/1024:.2f} KB "
+        f"| target=[{target_min_bytes/1024:.2f}, {target_max_bytes/1024:.2f}] KB"
+    )
+    persist_success_result(
+        path=path,
+        result_buf=result_buf,
+        result_size=result_size,
+        init_size=init_size,
+        quality=quality,
+        method=method,
+        resize_count=resize_count,
+        local_version=local_version,
+        started_at=started_at,
+        stats_mgr_webp=stats_mgr_webp,
+        width=width,
+        height=height,
+        frame_count=frame_count,
+        encode_elapsed=encode_elapsed,
+    )
 
 
 def persist_best_effort(
@@ -96,7 +137,7 @@ def persist_best_effort(
 
     best_miss_pct = abs(best_effort_size - target_mid_bytes) / target_mid_bytes * 100
     print(
-        f"{local_version} | [webp.best] {reason} | q={best_effort_q} size={best_effort_size/1024:.2f} KB miss={best_miss_pct:.2f}%"
+        f"{local_version} | [webp.best] | {reason} | q={best_effort_q} size={best_effort_size/1024:.2f} KB miss={best_miss_pct:.2f}%"
     )
 
     _save_step_stats(
@@ -115,8 +156,8 @@ def persist_best_effort(
 
     elapsed = time.time() - started_at
     print(
-        f"{local_version} | [webp.best] {init_size/1024:.2f} KB -> {best_effort_size/1024:.2f} KB "
+        f"{local_version} | [webp.best] | {init_size/1024:.2f} KB -> {best_effort_size/1024:.2f} KB "
         f"| q={best_effort_q} resized={resize_count}"
     )
-    print(f"{local_version} | [webp.best] done in {elapsed:.2f}s")
+    print(f"{local_version} | [webp.best] | done in {elapsed:.2f}s")
     return True

@@ -1,4 +1,4 @@
-# Compressor GIF Architecture (v2.0.36)
+# Compressor GIF Architecture (v2.0.37)
 
 This document describes the current compression architecture inside the Compressor folder.
 
@@ -408,9 +408,10 @@ Animated WEBP compression uses a bracketed binary search over quality values:
    and `frame_count >= webp_sample_probe_min_frames` (default 60), a cheap probe encodes
    `webp_sample_probe_sample_count` (default 20) evenly-spaced frames at the initial quality.
    The per-frame size is scaled to the full frame count (with a small `webp_sample_probe_bias = 1.02`
-   conservative factor) to predict the full encoded size, then quality is recalculated via
-   `sqrt(target_mid / predicted_full)`. This typically costs ~3s for 390-frame files and saves 1-2
-   full encode iterations (~1-2 minutes).
+  conservative factor) to predict the full encoded size, then quality is recalculated via
+  `sqrt(target_mid / predicted_full)`. The probe prediction is also stored as the first
+  `(quality, predicted_size)` observation for later iterations. This typically costs ~3s for
+  390-frame files and saves 1-2 full encode iterations (~1-2 minutes).
 3. **Direct-fast shortcut**: If direct-final is active and the known result fits within
    `webp_animated_direct_final_fast_max_growth = 1.10` tolerance, method=1 is tried first. If it
    misses target, falls back to method=2.
@@ -418,10 +419,16 @@ Animated WEBP compression uses a bracketed binary search over quality values:
    - Encode at current quality/method.
    - If in target range -> persist success, done.
    - Update `under_target_q` / `over_target_q` bracket and best-effort candidate.
+   - Record the `(quality, size)` observation and reuse recent observations to fit a simple
+     `size = C * q^alpha` model. When the fit is stable, the next quality is predicted from that
+     model instead of repeating the same square-root correction every iteration.
    - **Timeout rescue**: elapsed > `effective_max_seconds` -> persist best-effort via method=2.
    - **Bracket-tight exit**: `over_target_q - under_target_q <= 1` -> persist best-effort.
    - **Near-target nudge**: within 10% of target_mid and bracket unknown -> quality +/-1 or +/-2.
-   - **Resize fallback**: quality <= 45 -> resize frames and reset quality=95.
+   - **Resize fallback**: once the search reaches the quality floor (`q <= 45`), resize frames and
+     estimate a post-resize starting quality from the resized area ratio instead of resetting to 95.
+     If the fitted model predicts `q < 45`, the code now skips the wasted extra full encode and
+     goes directly into resize fallback.
    - Otherwise: binary search between bracket bounds, or ratio-based correction.
 5. **Max iterations**: Persist best-effort (closest to target_mid).
 

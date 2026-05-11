@@ -2765,7 +2765,7 @@
       "fast_size": 10.21763801574707,
       "med_size": 13.8491792678833,
       "scale": 0.7362981383404541,
-      "timestamp": 1778504564.2863748,
+      "timestamp": 1778511553.8570337,
       "count": 2
     }
   ],
@@ -2781,6 +2781,18 @@
       "encode_sec": 42.79,
       "timestamp": 1776356258.6858702,
       "count": 5
+    },
+    {
+      "width": 1280,
+      "height": 720,
+      "frames": 390,
+      "init_size_mb": 25.79,
+      "quality": 45,
+      "method": 2,
+      "result_size_mb": 13.98,
+      "encode_sec": 24.24,
+      "timestamp": 1778513582.513112,
+      "count": 1
     }
   ]
 }

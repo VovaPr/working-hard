@@ -1,4 +1,5 @@
 import io
+import math
 import time
 
 from PIL import Image
@@ -7,7 +8,7 @@ from webp_loop_steps import (
     encode_with_fallback,
     maybe_fallback_from_direct_fast,
     persist_best_effort,
-    persist_success_result,
+    persist_success,
     resolve_runtime_settings,
     resolve_startup_quality,
     try_timeout_rescue,
@@ -50,7 +51,7 @@ def _resolve_animation_startup(
         target_mid_bytes,
         gif_cfg,
     )
-    print(f"{local_version} | [webp.startup] prediction={source} | q={quality}")
+    print(f"{local_version} | [webp.startup] | prediction={source} | q={quality}")
 
     runtime = resolve_runtime_settings(
         gif_cfg,
@@ -89,7 +90,7 @@ def _run_encode_step(
     step_elapsed = time.time() - started_at
     bracket_str = f"{under_target_q}-{over_target_q}" if bracket_known else "none"
     print(
-        f"{local_version} | [webp.step] step={step} q={quality} method={method_in_use} "
+        f"{local_version} | [webp.step] | step={step} q={quality} method={method_in_use} "
         f"bracket={bracket_str} | elapsed={step_elapsed:.1f}s/{effective_max_seconds:.0f}s"
     )
 
@@ -124,7 +125,7 @@ def _run_encode_step(
     step_encode_elapsed += fallback_elapsed
 
     print(
-        f"{local_version} | [webp.step] step={step} | size={effective_size/1024:.2f} KB | encode={step_encode_elapsed:.2f}s"
+        f"{local_version} | [webp.step] | step={step} | size={effective_size/1024:.2f} KB | encode={step_encode_elapsed:.2f}s"
     )
     return {
         "quality": quality,
@@ -200,7 +201,7 @@ def _update_quality_bracket(*, under_target_q, over_target_q, effective_size, qu
         if under_target_q is not None and over_target_q is not None
         else f"under={under_target_q} over={over_target_q}"
     )
-    print(f"{local_version} | [webp.bracket] {bracket}")
+    print(f"{local_version} | [webp.bracket] | {bracket}")
     return under_target_q, over_target_q
 
 
@@ -279,7 +280,7 @@ def _try_near_target_nudge(
     )
     next_quality = min(100, quality + nudge_step) if effective_size < target_min_bytes else max(45, quality - nudge_step)
     print(
-        f"{local_version} | [webp.nudge] miss={miss_ratio*100:.2f}% step={nudge_step} | q={quality} -> q={next_quality}"
+        f"{local_version} | [webp.nudge] | miss={miss_ratio*100:.2f}% step={nudge_step} | q={quality} -> q={next_quality}"
     )
     return next_quality
 
@@ -304,13 +305,72 @@ def _try_resize_fallback(*, quality, effective_size, target_mid_bytes, frames, r
     initial_quality = max(45, min(95, int(quality * q_correction)))
 
     print(
-        f"{local_version} | [webp.resize] {old_w}x{old_h} -> {new_w}x{new_h} area={area_ratio:.2f} "
+        f"{local_version} | [webp.resize] | {old_w}x{old_h} -> {new_w}x{new_h} area={area_ratio:.2f} "
         f"| estimated={estimated_new_size/1024:.0f} KB | q={quality} -> q={initial_quality}"
     )
     return resized_frames, new_resize_count, initial_quality, None, None
 
 
-def _resolve_next_quality(*, under_target_q, over_target_q, quality, effective_size, target_mid_bytes, local_version):
+def _fit_quality_model(observations):
+    """Fit size = C * q^alpha from (quality, size_bytes) observations via log-linear regression.
+    Uses at most the 3 most recent observations. Returns (C, alpha) or None if data is
+    insufficient or alpha falls outside the plausible range [0.20, 5.00].
+    """
+    pts = [(q, s) for q, s in observations[-3:] if q > 0 and s > 0]
+    if len(pts) < 2:
+        return None
+    if len(pts) == 2:
+        q1, s1 = pts[0]
+        q2, s2 = pts[1]
+        if abs(q1 - q2) < 2:
+            return None
+        alpha = math.log(s2 / s1) / math.log(q2 / q1)
+        if not (0.20 <= alpha <= 5.00):
+            return None
+        C = s1 / (q1 ** alpha)
+        return C, alpha
+    lqs = [math.log(q) for q, s in pts]
+    lss = [math.log(s) for q, s in pts]
+    n = len(pts)
+    sum_lq = sum(lqs)
+    sum_ls = sum(lss)
+    sum_lq2 = sum(x * x for x in lqs)
+    sum_lqls = sum(lqs[i] * lss[i] for i in range(n))
+    denom = n * sum_lq2 - sum_lq ** 2
+    if abs(denom) < 1e-10:
+        return None
+    alpha = (n * sum_lqls - sum_lq * sum_ls) / denom
+    if not (0.20 <= alpha <= 5.00):
+        return None
+    log_C = (sum_ls - alpha * sum_lq) / n
+    C = math.exp(log_C)
+    return C, alpha
+
+
+def _resolve_next_quality(*, under_target_q, over_target_q, quality, effective_size, target_mid_bytes, observations, local_version):
+    if under_target_q is not None and over_target_q is not None and over_target_q - under_target_q > 1:
+        next_quality = (under_target_q + over_target_q) // 2
+        print(
+            f"{local_version} | [webp.bracket] | binary-search | "
+            f"under_q={under_target_q} over_q={over_target_q} -> q={next_quality}"
+        )
+        return next_quality
+
+    if len(observations) >= 2:
+        model = _fit_quality_model(observations)
+        if model is not None:
+            C, alpha = model
+            raw_q = (target_mid_bytes / C) ** (1.0 / alpha)
+            proposed = max(1, min(100, int(raw_q)))
+            if under_target_q is not None:
+                proposed = max(proposed, under_target_q + 1)
+            if over_target_q is not None:
+                proposed = min(proposed, over_target_q - 1)
+            print(
+                f"{local_version} | [webp.bracket] | model-fit alpha={alpha:.2f} | q={quality} -> q={proposed}"
+            )
+            return proposed
+
     correction = (target_mid_bytes / effective_size) ** 0.5
     raw_ratio = effective_size / target_mid_bytes
     if raw_ratio > 1.20 or raw_ratio < 0.80:
@@ -320,21 +380,13 @@ def _resolve_next_quality(*, under_target_q, over_target_q, quality, effective_s
         # Near target: clamp tightly to avoid overshooting the bracket
         correction = max(0.88, min(1.12, correction))
 
-    if under_target_q is not None and over_target_q is not None and over_target_q - under_target_q > 1:
-        next_quality = (under_target_q + over_target_q) // 2
-        print(
-            f"{local_version} | [webp.bracket] binary-search | "
-            f"under_q={under_target_q} over_q={over_target_q} -> q={next_quality}"
-        )
-        return next_quality
-
-    proposed_quality = max(45, min(100, int(quality * correction)))
+    proposed_quality = max(1, min(100, int(quality * correction)))
     if under_target_q is not None:
         proposed_quality = max(proposed_quality, under_target_q + 1)
     if over_target_q is not None:
         proposed_quality = min(proposed_quality, over_target_q - 1)
     print(
-        f"{local_version} | [webp.bracket] ratio-correction | q={quality} correction={correction:.3f} -> q={proposed_quality}"
+        f"{local_version} | [webp.bracket] | ratio-correction | q={quality} correction={correction:.3f} -> q={proposed_quality}"
     )
     return proposed_quality
 
@@ -343,7 +395,7 @@ def _run_sample_probe_if_needed(*, state, frames, durations, target_mid_bytes, f
     """Run a cheap frame-subset probe to calibrate the initial quality when no stats profile exists."""
     if state["direct_final_from_stats"]:
         return
-    corrected_quality = run_webp_sample_probe(
+    corrected_quality, probe_observation = run_webp_sample_probe(
         frames=frames,
         durations=durations,
         quality=state["quality"],
@@ -353,6 +405,8 @@ def _run_sample_probe_if_needed(*, state, frames, durations, target_mid_bytes, f
         gif_cfg=gif_cfg,
         save_webp_frames=_save_webp_frames,
     )
+    if probe_observation is not None:
+        state["observations"].append(probe_observation)
     if corrected_quality is not None:
         state["quality"] = corrected_quality
 
@@ -369,6 +423,7 @@ def _build_animation_state(*, startup, frames):
         "can_use_direct_fast": startup["can_use_direct_fast"],
         "under_target_q": None,
         "over_target_q": None,
+        "observations": [],
         "best_effort": {"buf": None, "size": None, "quality": None, "method": None},
     }
 
@@ -496,14 +551,28 @@ def _pick_next_quality(
         state["frames"], state["resize_count"], state["quality"], state["under_target_q"], state["over_target_q"] = resize_result
         return "continue"
 
-    state["quality"] = _resolve_next_quality(
+    raw_next_q = _resolve_next_quality(
         under_target_q=state["under_target_q"],
         over_target_q=state["over_target_q"],
         quality=state["quality"],
         effective_size=effective_size,
         target_mid_bytes=target_mid_bytes,
+        observations=state["observations"],
         local_version=local_version,
     )
+    if raw_next_q < 45:
+        resize_result = _try_resize_fallback(
+            quality=raw_next_q,
+            effective_size=effective_size,
+            target_mid_bytes=target_mid_bytes,
+            frames=state["frames"],
+            resize_count=state["resize_count"],
+            local_version=local_version,
+        )
+        if resize_result is not None:
+            state["frames"], state["resize_count"], state["quality"], state["under_target_q"], state["over_target_q"] = resize_result
+            return "continue"
+    state["quality"] = max(45, raw_next_q)
     return "continue"
 
 
@@ -531,19 +600,20 @@ def _handle_iteration_outcome(
     effective_method = step_result["effective_method"]
     step_encode_elapsed = step_result["step_encode_elapsed"]
     bracket_known = step_result["bracket_known"]
+    state["observations"].append((state["quality"], effective_size))
 
     if _is_in_target_range(
         effective_size=effective_size,
         target_min_bytes=target_min_bytes,
         target_max_bytes=target_max_bytes,
     ):
-        _persist_success(
+        persist_success(
             path=path,
-            effective_buf=effective_buf,
-            effective_size=effective_size,
+            result_buf=effective_buf,
+            result_size=effective_size,
             init_size=init_size,
             quality=state["quality"],
-            effective_method=effective_method,
+            method=effective_method,
             resize_count=state["resize_count"],
             local_version=local_version,
             started_at=started_at,
@@ -551,7 +621,7 @@ def _handle_iteration_outcome(
             width=width,
             height=height,
             frame_count=frame_count,
-            step_encode_elapsed=step_encode_elapsed,
+            encode_elapsed=step_encode_elapsed,
             target_min_bytes=target_min_bytes,
             target_max_bytes=target_max_bytes,
         )
@@ -629,6 +699,6 @@ def _persist_max_iterations(
         return True
 
     print(
-        f"{local_version} | [webp.best] max-iter | file unchanged | {final_msg}"
+        f"{local_version} | [webp.best] | max-iter | file unchanged | {final_msg}"
     )
     return False

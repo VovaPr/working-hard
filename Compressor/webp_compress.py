@@ -24,9 +24,9 @@ def compress_animated_webp_until_under_target(path, gif_cfg, version, stats_file
             if not is_animated:
                 return
 
-            print(f"{local_version} | Initial WEBP: {path}")
+            print(f"{local_version} | [webp.startup] | Initial WEBP: {path}")
             print(
-                f"{local_version} | WxH={img.width}x{img.height} | Animated=True "
+                f"{local_version} | [webp.startup] | WxH={img.width}x{img.height} | Animated=True "
                 f"| Frames={frame_count} | Size={init_size/1024:.2f} KB "
                 f"| Target={gif_cfg.target_min_mb:.2f}-{gif_cfg.target_max_mb:.2f} MB"
             )
