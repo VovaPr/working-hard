@@ -317,3 +317,212 @@ def _resolve_next_quality(*, under_target_q, over_target_q, quality, effective_s
     if over_target_q is not None:
         proposed_quality = min(proposed_quality, over_target_q - 1)
     return proposed_quality
+
+
+def _build_animation_state(*, startup, frames):
+    return {
+        "frames": frames,
+        "quality": startup["quality"],
+        "direct_final_from_stats": startup["direct_final_from_stats"],
+        "resize_count": 0,
+        "webp_method": startup["webp_method"],
+        "webp_method_direct_fast": startup["webp_method_direct_fast"],
+        "effective_max_seconds": startup["effective_max_seconds"],
+        "can_use_direct_fast": startup["can_use_direct_fast"],
+        "under_target_q": None,
+        "over_target_q": None,
+        "best_effort": {"buf": None, "size": None, "quality": None, "method": None},
+    }
+
+
+def _handle_iteration_outcome(
+    *,
+    state,
+    step_result,
+    durations,
+    path,
+    init_size,
+    target_min_bytes,
+    target_max_bytes,
+    target_mid_bytes,
+    local_version,
+    gif_cfg,
+    started_at,
+    stats_mgr_webp,
+    width,
+    height,
+    frame_count,
+):
+    state["quality"] = step_result["quality"]
+    effective_size = step_result["effective_size"]
+    effective_buf = step_result["effective_buf"]
+    effective_method = step_result["effective_method"]
+    step_encode_elapsed = step_result["step_encode_elapsed"]
+    bracket_known = step_result["bracket_known"]
+
+    if _is_in_target_range(
+        effective_size=effective_size,
+        target_min_bytes=target_min_bytes,
+        target_max_bytes=target_max_bytes,
+    ):
+        _persist_success(
+            path=path,
+            effective_buf=effective_buf,
+            effective_size=effective_size,
+            init_size=init_size,
+            quality=state["quality"],
+            effective_method=effective_method,
+            resize_count=state["resize_count"],
+            local_version=local_version,
+            started_at=started_at,
+            stats_mgr_webp=stats_mgr_webp,
+            width=width,
+            height=height,
+            frame_count=frame_count,
+            step_encode_elapsed=step_encode_elapsed,
+            target_min_bytes=target_min_bytes,
+            target_max_bytes=target_max_bytes,
+        )
+        return "done"
+
+    _update_best_effort(
+        best_effort=state["best_effort"],
+        effective_size=effective_size,
+        effective_buf=effective_buf,
+        quality=state["quality"],
+        effective_method=effective_method,
+        target_mid_bytes=target_mid_bytes,
+    )
+    state["under_target_q"], state["over_target_q"] = _update_quality_bracket(
+        under_target_q=state["under_target_q"],
+        over_target_q=state["over_target_q"],
+        effective_size=effective_size,
+        quality=state["quality"],
+        target_min_bytes=target_min_bytes,
+        target_max_bytes=target_max_bytes,
+        local_version=local_version,
+    )
+
+    elapsed = time.time() - started_at
+    timed_out = try_timeout_rescue(
+        elapsed=elapsed,
+        effective_max_seconds=state["effective_max_seconds"],
+        under_target_q=state["under_target_q"],
+        over_target_q=state["over_target_q"],
+        quality=state["quality"],
+        effective_size=effective_size,
+        target_min_bytes=target_min_bytes,
+        target_max_bytes=target_max_bytes,
+        frames=state["frames"],
+        durations=durations,
+        webp_method=state["webp_method"],
+        local_version=local_version,
+        save_webp_frames=_save_webp_frames,
+        stats_mgr_webp=stats_mgr_webp,
+        width=width,
+        height=height,
+        frame_count=frame_count,
+        init_size=init_size,
+        path=path,
+        started_at=started_at,
+    )
+    if timed_out:
+        return "done"
+
+    if _try_persist_bracket_tight(
+        under_target_q=state["under_target_q"],
+        over_target_q=state["over_target_q"],
+        best_effort=state["best_effort"],
+        local_version=local_version,
+        target_mid_bytes=target_mid_bytes,
+        stats_mgr_webp=stats_mgr_webp,
+        width=width,
+        height=height,
+        frame_count=frame_count,
+        init_size=init_size,
+        path=path,
+        started_at=started_at,
+        resize_count=state["resize_count"],
+        encode_elapsed=step_encode_elapsed,
+    ):
+        return "done"
+
+    nudged_quality = _try_near_target_nudge(
+        effective_size=effective_size,
+        target_mid_bytes=target_mid_bytes,
+        target_min_bytes=target_min_bytes,
+        target_max_bytes=target_max_bytes,
+        gif_cfg=gif_cfg,
+        bracket_known=bracket_known,
+        quality=state["quality"],
+        local_version=local_version,
+    )
+    if nudged_quality is not None:
+        state["quality"] = nudged_quality
+        return "continue"
+
+    resize_result = _try_resize_fallback(
+        quality=state["quality"],
+        effective_size=effective_size,
+        target_mid_bytes=target_mid_bytes,
+        frames=state["frames"],
+        resize_count=state["resize_count"],
+        local_version=local_version,
+    )
+    if resize_result is not None:
+        state["frames"], state["resize_count"], state["quality"], state["under_target_q"], state["over_target_q"] = resize_result
+        return "continue"
+
+    state["quality"] = _resolve_next_quality(
+        under_target_q=state["under_target_q"],
+        over_target_q=state["over_target_q"],
+        quality=state["quality"],
+        effective_size=effective_size,
+        target_mid_bytes=target_mid_bytes,
+        local_version=local_version,
+    )
+    print(f"{local_version} | WEBP step {state['resize_count']+1} | Quality={state['quality']}")
+    return "continue"
+
+
+def _persist_max_iterations(
+    *,
+    state,
+    target_mid_bytes,
+    gif_cfg,
+    local_version,
+    stats_mgr_webp,
+    width,
+    height,
+    frame_count,
+    init_size,
+    path,
+    started_at,
+):
+    final_msg = f"could not hit {gif_cfg.target_min_mb:.2f}-{gif_cfg.target_max_mb:.2f} MB"
+    persisted = persist_best_effort(
+        reason="max-iterations",
+        local_version=local_version,
+        target_mid_bytes=target_mid_bytes,
+        best_effort_buf=state["best_effort"]["buf"],
+        best_effort_size=state["best_effort"]["size"],
+        best_effort_q=state["best_effort"]["quality"],
+        best_effort_method=state["best_effort"]["method"],
+        stats_mgr_webp=stats_mgr_webp,
+        width=width,
+        height=height,
+        frame_count=frame_count,
+        init_size=init_size,
+        path=path,
+        started_at=started_at,
+        resize_count=state["resize_count"],
+        encode_elapsed=0,
+    )
+    if persisted:
+        return True
+
+    print(
+        f"{local_version} | вљ  WEBP animated max iterations reached; "
+        f"file kept unchanged ({final_msg})"
+    )
+    return False
