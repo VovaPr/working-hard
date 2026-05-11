@@ -33,7 +33,7 @@ def _handle_medcut_disabled_path(
 
     if is_in_target_range(fast_size, gif_cfg):
         fast_saved_size = len(fast_bytes) / (1024 * 1024)
-        stats_mgr.save_stats(palette_limit, width, height, total_frames, fast_size, fast_saved_size, state.scale)
+        stats_mgr.defer_stats(palette_limit, width, height, total_frames, fast_size, fast_saved_size, state.scale)
         print(f"{version} | [gif.guard] | FAST-only path reached target range")
         _save_success_result(
             input_path=input_path,

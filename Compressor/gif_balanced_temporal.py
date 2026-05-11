@@ -79,7 +79,7 @@ def _try_temporal_preserve(
     )
 
     if is_in_target_range(t_med_size, gif_cfg):
-        stats_mgr.save_stats(palette_limit, width, height, total_frames, fast_size, t_med_size, 1.0)
+           stats_mgr.defer_stats(palette_limit, width, height, total_frames, fast_size, t_med_size, 1.0)
         with open(input_path, "wb") as f:
             f.write(t_buf.getvalue())
         elapsed = time.time() - started_at
@@ -189,7 +189,7 @@ def _try_quality_retry(
     )
 
     if is_in_target_range(q_med_size, gif_cfg):
-        stats_mgr.save_stats(palette_limit, width, height, total_frames, fast_size, q_med_size, 1.0)
+           stats_mgr.defer_stats(palette_limit, width, height, total_frames, fast_size, q_med_size, 1.0)
         with open(input_path, "wb") as f:
             f.write(q_buf.getvalue())
         elapsed = time.time() - started_at

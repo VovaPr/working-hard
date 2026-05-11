@@ -11,6 +11,7 @@ class CompressorStatsManager:
         self.stats_file = stats_file
         self.version = version
         self.stats = []
+        self._stats_batch = []  # Buffer for deferred stats writes
         self._artifact_mgr = get_artifact_manager(os.path.dirname(stats_file))
         self._load_stats()
 
@@ -25,6 +26,11 @@ class CompressorStatsManager:
             self.stats = []
 
     def save_stats(self, palette, width, height, frames, fast_size, med_size, scale):
+        """DEPRECATED: Use defer_stats() instead. Kept for backward compatibility."""
+        self.defer_stats(palette, width, height, frames, fast_size, med_size, scale)
+
+    def defer_stats(self, palette, width, height, frames, fast_size, med_size, scale):
+        """Queue stats entry for batch write (memory only, no I/O)."""
         entry = {
             "palette": palette,
             "width": width,
@@ -35,15 +41,22 @@ class CompressorStatsManager:
             "scale": scale,
             "timestamp": time.time(),
         }
-        self.stats.append(entry)
+        self._stats_batch.append(entry)
+
+    def flush_stats(self):
+        """Write all deferred stats entries to file in one batch operation."""
+        if not self._stats_batch:
+            return
         try:
             data = self._artifact_mgr.load_stats()
             if not isinstance(data, dict):
                 data = {"gif_stats": data if isinstance(data, list) else []}
-            data["gif_stats"] = self.stats
+            data["gif_stats"].extend(self._stats_batch)
+            self.stats.extend(self._stats_batch)
             self._artifact_mgr.save_stats(data)
+            self._stats_batch = []
         except Exception as e:
-            print(f"{self.version} | Warning: failed to save stats: {e}")
+            print(f"{self.version} | Warning: failed to flush stats: {e}")
 
     def _filter_matches(self, palette, width, height, frames):
         return [

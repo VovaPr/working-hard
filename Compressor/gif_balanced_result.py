@@ -65,7 +65,7 @@ def _try_fast_accept(
     )
     if can_fast_direct_accept:
         fast_saved_size = len(fast_bytes) / (1024 * 1024)
-        stats_mgr.save_stats(palette_limit, width, height, total_frames, fast_size, fast_saved_size, state.scale)
+        stats_mgr.defer_stats(palette_limit, width, height, total_frames, fast_size, fast_saved_size, state.scale)
         _save_success_result(
             input_path=input_path,
             output_bytes=fast_bytes,
@@ -84,7 +84,7 @@ def _try_fast_accept(
 
     if iteration >= 1 and fast_in_preferred:
         fast_saved_size = len(fast_bytes) / (1024 * 1024)
-        stats_mgr.save_stats(palette_limit, width, height, total_frames, fast_size, fast_size, state.scale)
+        stats_mgr.defer_stats(palette_limit, width, height, total_frames, fast_size, fast_size, state.scale)
         _save_success_result(
             input_path=input_path,
             output_bytes=fast_bytes,
@@ -124,7 +124,7 @@ def _finalize_medcut_success(
 ):
     print(f"{version} | [gif.finalize] | Save final result and stats")
     save_start = time.time()
-    stats_mgr.save_stats(palette_limit, width, height, total_frames, fast_size, med_size, state.scale)
+    stats_mgr.defer_stats(palette_limit, width, height, total_frames, fast_size, med_size, state.scale)
     with open(input_path, "wb") as f:
         f.write(med_bytes)
     print(f"{version} | [gif.diag] | save+stats={time.time() - save_start:.2f}s")

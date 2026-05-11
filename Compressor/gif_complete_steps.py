@@ -42,7 +42,7 @@ def _act_on_overhead_guard(
 ):
     if is_in_target_range(med_input["fast_size"], gif_cfg):
         fast_saved_size = len(med_input["fast_bytes"]) / (1024 * 1024)
-        stats_mgr.save_stats(palette_limit, width, height, total_frames, med_input["fast_size"], fast_saved_size, state.scale)
+        stats_mgr.defer_stats(palette_limit, width, height, total_frames, med_input["fast_size"], fast_saved_size, state.scale)
         print(f"{version} | [gif.guard] | Repeated MEDIANCUT overhead is too high; using FASTOCTREE because it is already in target")
         _save_success_result(
             input_path=input_path,
