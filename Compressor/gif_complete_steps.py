@@ -61,6 +61,12 @@ def _act_on_overhead_guard(
         return {"status": "done", "done": True, "frames_raw": frames_raw, "durations": durations, "total_frames": total_frames}
 
     print(f"{version} | [gif.guard] | Repeated MEDIANCUT overhead is too high; FASTOCTREE is outside target, switching to FAST-only search")
+    if med_input["fast_size"] < gif_cfg.targets.target_min_mb:
+        state.low_scale = max(state.low_scale, state.scale)
+        state.high_scale = 4.0
+    else:
+        state.low_scale = 0.01
+        state.high_scale = min(state.high_scale, state.scale)
     state.medcut_disabled = True
     state.medcut_overhead_hits = 0
     return {"status": "done", "done": False, "frames_raw": frames_raw, "durations": durations, "total_frames": total_frames}
