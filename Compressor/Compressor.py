@@ -102,6 +102,11 @@ class GIFConfig:
     webp_sample_probe_min_frames: int = 60
     webp_sample_probe_sample_count: int = 20
     webp_sample_probe_bias: float = 1.02  # Slight conservative factor to avoid underestimating full size
+    # Conservative new-file fast-path (with strict guards): can trigger earlier resize
+    # only when first pass is far above the target and predicted quality drops low.
+    webp_animated_new_file_fastpath_enabled: bool = True
+    webp_animated_new_file_fastpath_overflow_ratio: float = 1.20
+    webp_animated_new_file_fastpath_resize_q_threshold: int = 48
     # Exact-input cache: when the same oversized WEBP bytes appear again,
     # reuse previously encoded final WEBP and skip expensive re-encode.
     webp_animated_exact_input_cache_enabled: bool = True

@@ -578,6 +578,39 @@ def _pick_next_quality(
         observations=state["observations"],
         local_version=local_version,
     )
+
+    # Conservative fast-path for new files: if the first startup attempt is far above target,
+    # resize one step earlier (with bounded threshold) instead of spending an extra encode.
+    fastpath_enabled = bool(getattr(gif_cfg, "webp_animated_new_file_fastpath_enabled", False))
+    fastpath_overflow_ratio = float(getattr(gif_cfg, "webp_animated_new_file_fastpath_overflow_ratio", 1.20))
+    fastpath_resize_q_threshold = int(getattr(gif_cfg, "webp_animated_new_file_fastpath_resize_q_threshold", 48))
+    is_new_file_path = not state.get("direct_final_from_stats", False)
+    overflow_ratio = (effective_size / target_max_bytes) if target_max_bytes > 0 else 1.0
+    if (
+        fastpath_enabled
+        and is_new_file_path
+        and state.get("resize_count", 0) == 0
+        and state.get("over_target_q") is not None
+        and state.get("under_target_q") is None
+        and overflow_ratio >= max(1.0, fastpath_overflow_ratio)
+        and raw_next_q < fastpath_resize_q_threshold
+    ):
+        print(
+            f"{local_version} | [webp.fastpath] | early-resize "
+            f"| overflow={overflow_ratio:.2f}x q={state['quality']} -> q={raw_next_q}"
+        )
+        resize_result = _try_resize_fallback(
+            quality=raw_next_q,
+            effective_size=effective_size,
+            target_mid_bytes=target_mid_bytes,
+            frames=state["frames"],
+            resize_count=state["resize_count"],
+            local_version=local_version,
+        )
+        if resize_result is not None:
+            state["frames"], state["resize_count"], state["quality"], state["under_target_q"], state["over_target_q"] = resize_result
+            return "continue"
+
     if raw_next_q < 45:
         resize_result = _try_resize_fallback(
             quality=raw_next_q,
