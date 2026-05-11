@@ -1,4 +1,3 @@
-import json
 import os
 import time
 from artifact_manager import get_artifact_manager
