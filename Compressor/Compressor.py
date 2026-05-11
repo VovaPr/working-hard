@@ -191,7 +191,7 @@ def scan_media_candidates(root_folder_path):
     return scan_media_candidates_impl(
         root_folder_path=root_folder_path,
         target_size=TARGET_SIZE,
-        min_process_size_mb=CONFIG.gif.min_process_size_mb,
+        min_process_size_mb=CONFIG.gif.targets.min_process_size_mb,
         run_metrics=RUN_METRICS,
     )
 
