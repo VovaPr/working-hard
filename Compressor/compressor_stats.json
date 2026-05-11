@@ -2066,7 +2066,8 @@
       "fast_size": 11.086384773254395,
       "med_size": 14.253950119018555,
       "scale": 0.7078695429666474,
-      "timestamp": 1777530920.9533226
+      "timestamp": 1778525169.2385843,
+      "count": 2
     },
     {
       "palette": 256,
@@ -2777,6 +2778,26 @@
       "med_size": 14.461907386779785,
       "scale": 0.4393620185670727,
       "timestamp": 1778517705.5895572
+    },
+    {
+      "palette": 256,
+      "width": 506,
+      "height": 900,
+      "frames": 81,
+      "fast_size": 8.387883186340332,
+      "med_size": 13.945613861083984,
+      "scale": 0.7948370900283518,
+      "timestamp": 1778523161.4632742
+    },
+    {
+      "palette": 256,
+      "width": 338,
+      "height": 600,
+      "frames": 187,
+      "fast_size": 14.568758964538574,
+      "med_size": 14.568758964538574,
+      "scale": 0.7756748726818347,
+      "timestamp": 1778523750.3165205
     }
   ],
   "webp_animated_stats": [
@@ -2800,8 +2821,8 @@
       "quality": 46,
       "method": 2,
       "result_size_mb": 13.51,
-      "encode_sec": 81.93,
-      "timestamp": 1778519736.8646579,
+      "encode_sec": 61.98,
+      "timestamp": 1778524600.9292362,
       "count": 1,
       "resize_count": 1,
       "final_width": 1097,

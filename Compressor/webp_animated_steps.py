@@ -142,47 +142,6 @@ def _is_in_target_range(*, effective_size, target_min_bytes, target_max_bytes):
     return target_min_bytes <= effective_size <= target_max_bytes
 
 
-def _persist_success(
-    *,
-    path,
-    effective_buf,
-    effective_size,
-    init_size,
-    quality,
-    effective_method,
-    resize_count,
-    local_version,
-    started_at,
-    stats_mgr_webp,
-    width,
-    height,
-    frame_count,
-    step_encode_elapsed,
-    target_min_bytes,
-    target_max_bytes,
-):
-    print(
-        f"{local_version} | [webp.success] size={effective_size/1024:.2f} KB "
-        f"| target=[{target_min_bytes/1024:.2f}, {target_max_bytes/1024:.2f}] KB"
-    )
-    persist_success_result(
-        path=path,
-        result_buf=effective_buf,
-        result_size=effective_size,
-        init_size=init_size,
-        quality=quality,
-        method=effective_method,
-        resize_count=resize_count,
-        local_version=local_version,
-        started_at=started_at,
-        stats_mgr_webp=stats_mgr_webp,
-        width=width,
-        height=height,
-        frame_count=frame_count,
-        encode_elapsed=step_encode_elapsed,
-    )
-
-
 def _update_best_effort(*, best_effort, effective_size, effective_buf, quality, effective_method, target_mid_bytes):
     miss_abs = abs(effective_size - target_mid_bytes)
     if best_effort["size"] is None or miss_abs < abs(best_effort["size"] - target_mid_bytes):

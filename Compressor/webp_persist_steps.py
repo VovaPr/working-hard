@@ -1,6 +1,74 @@
 import time
 
 
+def persist_success(
+    *,
+    path,
+    result_buf,
+    result_size,
+    init_size,
+    quality,
+    method,
+    resize_count,
+    local_version,
+    started_at,
+    stats_mgr_webp,
+    width,
+    height,
+    frame_count,
+    encode_elapsed,
+    target_min_bytes=None,
+    target_max_bytes=None,
+    final_width=None,
+    final_height=None,
+):
+    """Persist a successful WEBP encode with stats and formatted logging.
+    
+    Args:
+        path: File path to write result to
+        result_buf: BytesIO buffer with encoded WEBP data
+        result_size: Final size in bytes
+        init_size: Original size in bytes
+        quality: Quality setting used
+        method: WebP method used (1 or 2)
+        resize_count: Number of times frames were resized
+        local_version: Version string for logging
+        started_at: Timestamp when compression started
+        stats_mgr_webp: Stats manager to save statistics
+        width: Original frame width
+        height: Original frame height  
+        frame_count: Total frames
+        encode_elapsed: Time spent encoding
+        target_min_bytes: Min target for logging (optional)
+        target_max_bytes: Max target for logging (optional)
+        final_width: Final frame width after resize (optional)
+        final_height: Final frame height after resize (optional)
+    """
+    if target_min_bytes is not None and target_max_bytes is not None:
+        print(
+            f"{local_version} | [webp.success] | size={result_size/1024:.2f} KB "
+            f"| target=[{target_min_bytes/1024:.2f}, {target_max_bytes/1024:.2f}] KB"
+        )
+    persist_success_result(
+        path=path,
+        result_buf=result_buf,
+        result_size=result_size,
+        init_size=init_size,
+        quality=quality,
+        method=method,
+        resize_count=resize_count,
+        local_version=local_version,
+        started_at=started_at,
+        stats_mgr_webp=stats_mgr_webp,
+        width=width,
+        height=height,
+        frame_count=frame_count,
+        encode_elapsed=encode_elapsed,
+        final_width=final_width,
+        final_height=final_height,
+    )
+
+
 def _save_step_stats(
     *,
     stats_mgr_webp,
@@ -81,51 +149,6 @@ def persist_success_result(
     if stats_mgr_webp:
         print(f"{local_version} | [webp.success] | stats={stats_mgr_webp.stats_count()} records")
     print(f"{local_version} | [webp.success] | done in {elapsed:.2f}s")
-
-
-def persist_success(
-    *,
-    path,
-    result_buf,
-    result_size,
-    init_size,
-    quality,
-    method,
-    resize_count,
-    local_version,
-    started_at,
-    stats_mgr_webp,
-    width,
-    height,
-    frame_count,
-    encode_elapsed,
-    target_min_bytes,
-    target_max_bytes,
-    final_width=None,
-    final_height=None,
-):
-    print(
-        f"{local_version} | [webp.success] | size={result_size/1024:.2f} KB "
-        f"| target=[{target_min_bytes/1024:.2f}, {target_max_bytes/1024:.2f}] KB"
-    )
-    persist_success_result(
-        path=path,
-        result_buf=result_buf,
-        result_size=result_size,
-        init_size=init_size,
-        quality=quality,
-        method=method,
-        resize_count=resize_count,
-        local_version=local_version,
-        started_at=started_at,
-        stats_mgr_webp=stats_mgr_webp,
-        width=width,
-        height=height,
-        frame_count=frame_count,
-        encode_elapsed=encode_elapsed,
-        final_width=final_width,
-        final_height=final_height,
-    )
 
 
 def persist_best_effort(

@@ -21,12 +21,12 @@ def _run_fastoctree_trial(
     """Run FASTOCTREE probe with cache by scale."""
     resize_start = time.time()
     resized_frames = resize_frames(frames_raw, width, height, scale)
-    print(f"{version} | [gif.diag] resize scale={scale:.3f} elapsed={time.time() - resize_start:.2f}s")
+    print(f"{version} | [gif.diag] | resize scale={scale:.3f} elapsed={time.time() - resize_start:.2f}s")
     key = _scale_key(scale)
 
     if key in fast_cache:
         fast_size = fast_cache[key]["size"]
-        print(f"{version} | [gif.fast] Step {iteration+1}.0 ({stage_tag}, cached) | FASTOCTREE={fast_size:.2f} MB")
+        print(f"{version} | [gif.fast] | Step {iteration+1}.0 ({stage_tag}, cached) | FASTOCTREE={fast_size:.2f} MB")
         return resized_frames, fast_size, fast_cache[key].get("bytes")
 
     step_start = time.time()
@@ -34,5 +34,5 @@ def _run_fastoctree_trial(
     buf_fast, fast_size = save_gif(frames_fast, durations, optimize=False)
     fast_cache[key] = {"size": fast_size, "bytes": buf_fast.getvalue()}
     step_elapsed = time.time() - step_start
-    print(f"{version} | [gif.fast] Step {iteration+1}.0 ({stage_tag}) | FASTOCTREE={fast_size:.2f} MB | finished in {step_elapsed:.2f} sec")
+    print(f"{version} | [gif.fast] | Step {iteration+1}.0 ({stage_tag}) | FASTOCTREE={fast_size:.2f} MB | finished in {step_elapsed:.2f} sec")
     return resized_frames, fast_size, fast_cache[key]["bytes"]
