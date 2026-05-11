@@ -55,7 +55,7 @@ def _compress_animated_webp(
         gif_cfg=gif_cfg,
     )
 
-    for step in range(1, gif_cfg.webp_animated_max_iterations + 1):
+    for step in range(1, gif_cfg.webp.webp_animated_max_iterations + 1):
         step_result = _run_encode_step(
             step=step,
             quality=state["quality"],

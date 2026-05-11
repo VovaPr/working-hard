@@ -42,13 +42,13 @@ def _process_pool_chunksize(frame_count, workers, gif_cfg):
     if frame_count <= 0:
         return 1
 
-    tasks_per_worker = max(1, int(gif_cfg.process_pool_tasks_per_worker))
+    tasks_per_worker = max(1, int(gif_cfg.runtime.process_pool_tasks_per_worker))
     return max(1, frame_count // max(1, workers * tasks_per_worker))
 
 
 def _sample_probe_frame_limit(total_frames, gif_cfg):
-    max_frames = max(2, int(gif_cfg.sample_probe_max_frames))
-    min_frames = max(2, min(max_frames, int(gif_cfg.sample_probe_min_frames)))
+    max_frames = max(2, int(gif_cfg.sample_probe.sample_probe_max_frames))
+    min_frames = max(2, min(max_frames, int(gif_cfg.sample_probe.sample_probe_min_frames)))
 
     if total_frames <= min_frames:
         return total_frames

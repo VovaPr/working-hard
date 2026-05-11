@@ -36,7 +36,7 @@ def _apply_iter0_adjustments(
         iteration == 0
         and source in {"delta_avg (conservative)"}
         and fast_size < target_mid * 0.80
-        and predicted_medcut < gif_cfg.target_min_mb * 0.92
+        and predicted_medcut < gif_cfg.targets.target_min_mb * 0.92
     )
     if can_pre_correct:
         debug_log("decision=pre_correction | reason=iter0/formula_or_delta and prediction well below target")
@@ -58,9 +58,9 @@ def _apply_iter0_adjustments(
     can_soft_preshrink_formula = (
         iteration == 0
         and source == "formula (conservative)"
-        and predicted_medcut > gif_cfg.target_max_mb * 0.985
-        and predicted_medcut <= gif_cfg.target_max_mb * 1.20
-        and fast_size > gif_cfg.target_max_mb * 0.80
+        and predicted_medcut > gif_cfg.targets.target_max_mb * 0.985
+        and predicted_medcut <= gif_cfg.targets.target_max_mb * 1.20
+        and fast_size > gif_cfg.targets.target_max_mb * 0.80
     )
     if can_soft_preshrink_formula:
         suggested_scale = state.scale * (target_mid / predicted_medcut) ** 0.5 if predicted_medcut > 0 else state.scale
@@ -106,7 +106,7 @@ def _apply_iter0_adjustments(
 
     can_micro_adjust = (
         source_is_neighbor
-        and predicted_medcut < gif_cfg.target_min_mb
+        and predicted_medcut < gif_cfg.targets.target_min_mb
         and fast_size < target_mid * 0.9
         and not state.micro_adjust_used
         and iteration <= 1
@@ -117,7 +117,7 @@ def _apply_iter0_adjustments(
     if can_micro_adjust:
         adj_scale = state.scale * (target_mid / (fast_size + 4.0)) ** 0.5
         if abs(adj_scale - state.scale) > 0.01:
-            max_micro_step = state.scale * min(0.30, gif_cfg.max_scale_step_ratio * 2.0)
+            max_micro_step = state.scale * min(0.30, gif_cfg.runtime.max_scale_step_ratio * 2.0)
             if abs(adj_scale - state.scale) > max_micro_step:
                 direction = 1 if adj_scale > state.scale else -1
                 adj_scale = state.scale + direction * max_micro_step

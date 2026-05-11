@@ -26,13 +26,13 @@ def _decode_gif_input(input_path, gif_cfg, version):
         width, height = img.size
         total_frames = img.n_frames
         colors_first = len(img.getcolors(maxcolors=256 * 256) or [])
-        palette_limit = min(colors_first + gif_cfg.extra_palette, 256)
+        palette_limit = min(colors_first + gif_cfg.runtime.extra_palette, 256)
 
         print(f"{version} | [gif.startup] | Starting file: {input_path}")
         init_size = os.path.getsize(input_path) / (1024 * 1024)
         print(
             f"{version} | [gif.startup] | WxH={width}x{height} | Frames={total_frames} | "
-            f"Palette={colors_first} | Size={init_size:.2f} MB | Target={gif_cfg.target_min_mb:.2f}-{gif_cfg.target_max_mb:.2f} MB"
+            f"Palette={colors_first} | Size={init_size:.2f} MB | Target={gif_cfg.targets.target_min_mb:.2f}-{gif_cfg.targets.target_max_mb:.2f} MB"
         )
 
         decode_start = time.time()
@@ -62,9 +62,9 @@ def _build_runtime_context(*, decoded, gif_cfg, stats_file, version, debug_log):
 
     workers = max(1, (os.cpu_count() or 4) // 2)
     print(f"{version} | [gif.prepare] | Using {workers} workers for {total_frames} frames")
-    debug_log(f"log_level runtime | max_safe_iterations={gif_cfg.max_safe_iterations}")
+    debug_log(f"log_level runtime | max_safe_iterations={gif_cfg.runtime.max_safe_iterations}")
 
-    target_mid = (gif_cfg.target_min_mb + gif_cfg.target_max_mb) / 2
+    target_mid = (gif_cfg.targets.target_min_mb + gif_cfg.targets.target_max_mb) / 2
     bias_factor = 1.1 + 0.05 * (palette_limit / 256.0)
 
     stats_mgr = CompressorStatsManager(stats_file, version)
@@ -91,8 +91,8 @@ def _build_runtime_context(*, decoded, gif_cfg, stats_file, version, debug_log):
         med_cache={},
     )
     small_res_high_frames = (
-        (width * height) <= gif_cfg.temporal_max_pixels
-        and total_frames >= gif_cfg.temporal_min_frames
+        (width * height) <= gif_cfg.temporal.temporal_max_pixels
+        and total_frames >= gif_cfg.temporal.temporal_min_frames
     )
 
     return {
@@ -128,7 +128,7 @@ def _run_balanced_loop(
     pool_start = time.time()
     with ProcessPoolExecutor(max_workers=runtime["workers"]) as executor:
         print(f"{version} | [gif.diag] | pool_startup={time.time() - pool_start:.2f}s")
-        for iteration in range(gif_cfg.max_safe_iterations):
+        for iteration in range(gif_cfg.runtime.max_safe_iterations):
             result = _run_balanced_iteration(
                 iteration=iteration,
                 source=runtime["source"],

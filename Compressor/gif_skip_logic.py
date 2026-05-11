@@ -24,7 +24,7 @@ def _try_hard_skip(
     if not (
         iteration == 0
         and (source == "formula (conservative)" or source_is_neighbor)
-        and fast_size > gif_cfg.target_max_mb * gif_cfg.fast_probe_hard_skip_ratio
+        and fast_size > gif_cfg.targets.target_max_mb * gif_cfg.skip.fast_probe_hard_skip_ratio
     ):
         return None
 
@@ -48,7 +48,7 @@ def _try_hard_skip(
 
     print(
         f"{version} | [gif.skip] Early hard-skip on iter 1: FASTOCTREE={fast_size:.2f} MB "
-        f"(>{gif_cfg.fast_probe_hard_skip_ratio:.2f}x target_max)"
+        f"(>{gif_cfg.skip.fast_probe_hard_skip_ratio:.2f}x target_max)"
     )
     print(f"{version} | [gif.skip] -> next scale={suggested_scale:.3f}")
     state.scale = suggested_scale
@@ -69,16 +69,16 @@ def _try_formula_under_target_skip(
     """Mutates state.scale and returns True if formula-under-target skip applies, else None."""
     if not (
         source == "formula (conservative)"
-        and predicted_medcut < (gif_cfg.target_min_mb - 0.35)
-        and fast_size < gif_cfg.target_min_mb
-        and iteration < (gif_cfg.max_safe_iterations - 1)
+        and predicted_medcut < (gif_cfg.targets.target_min_mb - 0.35)
+        and fast_size < gif_cfg.targets.target_min_mb
+        and iteration < (gif_cfg.runtime.max_safe_iterations - 1)
     ):
         return None
 
     state.low_scale = max(state.low_scale, state.scale)
     suggested_scale = state.scale * (target_mid / max(predicted_medcut, 0.1)) ** 0.5
 
-    max_up_step = state.scale * min(0.30, gif_cfg.max_scale_step_ratio * 2.0)
+    max_up_step = state.scale * min(0.30, gif_cfg.runtime.max_scale_step_ratio * 2.0)
     suggested_scale = ScaleStrategy.apply_step_cap(state.scale, suggested_scale, max_step_ratio=(max_up_step / state.scale if state.scale > 0 else 0.30))
     suggested_scale = ScaleStrategy.clamp_to_bracket(suggested_scale, state.low_scale, state.high_scale)
 

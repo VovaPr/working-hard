@@ -11,9 +11,9 @@ def compress_animated_webp_until_under_target(path, gif_cfg, version, stats_file
     """Compress animated WEBP files while preserving existing runtime behavior."""
     local_version = version
     started_at = time.time()
-    target_min_bytes = int(gif_cfg.target_min_mb * 1024 * 1024)
-    target_max_bytes = int(gif_cfg.target_max_mb * 1024 * 1024)
-    target_mid_bytes = int(((gif_cfg.target_min_mb + gif_cfg.target_max_mb) / 2.0) * 1024 * 1024)
+    target_min_bytes = int(gif_cfg.targets.target_min_mb * 1024 * 1024)
+    target_max_bytes = int(gif_cfg.targets.target_max_mb * 1024 * 1024)
+    target_mid_bytes = int(((gif_cfg.targets.target_min_mb + gif_cfg.targets.target_max_mb) / 2.0) * 1024 * 1024)
 
     try:
         with Image.open(path) as img:
@@ -28,7 +28,7 @@ def compress_animated_webp_until_under_target(path, gif_cfg, version, stats_file
             print(
                 f"{local_version} | [webp.startup] | WxH={img.width}x{img.height} | Animated=True "
                 f"| Frames={frame_count} | Size={init_size/1024:.2f} KB "
-                f"| Target={gif_cfg.target_min_mb:.2f}-{gif_cfg.target_max_mb:.2f} MB"
+                f"| Target={gif_cfg.targets.target_min_mb:.2f}-{gif_cfg.targets.target_max_mb:.2f} MB"
             )
 
             if target_min_bytes <= init_size <= target_max_bytes:

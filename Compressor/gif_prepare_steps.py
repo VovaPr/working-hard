@@ -158,8 +158,8 @@ def _probe_and_build_skip_decision(
     should_probe_formula = source == "formula (conservative)"
     should_probe_neighbor = (
         source_is_neighbor
-        and colors_first >= gif_cfg.sample_probe_neighbor_min_palette
-        and total_frames >= gif_cfg.sample_probe_neighbor_min_frames
+        and colors_first >= gif_cfg.sample_probe.sample_probe_neighbor_min_palette
+        and total_frames >= gif_cfg.sample_probe.sample_probe_neighbor_min_frames
     )
     predicted_medcut, sample_probe_measured_this_iter = _run_sample_probe(
         iteration=iteration,

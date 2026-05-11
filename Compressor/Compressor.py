@@ -13,7 +13,6 @@ APP_VERSION = "2.0.48"
 import os, sys, time, subprocess
 from datetime import datetime
 from dataclasses import dataclass, field
-from typing import ClassVar
 from image_compress import process_images as static_process_images
 from scanner import scan_media_candidates as scan_media_candidates_impl
 from webp_compress import compress_animated_webp_until_under_target as webp_compress_animated
@@ -122,7 +121,7 @@ class WEBPConfig:
 
 @dataclass(frozen=True)
 class GIFConfig:
-    """Grouped GIF/WEBP compression config with backward-compatible legacy attribute access."""
+    """Grouped GIF/WEBP compression config with explicit sections."""
 
     targets: GIFTargetsConfig = field(default_factory=GIFTargetsConfig)
     runtime: GIFRuntimeConfig = field(default_factory=GIFRuntimeConfig)
@@ -132,76 +131,6 @@ class GIFConfig:
     skip: GIFSkipConfig = field(default_factory=GIFSkipConfig)
     guard: GIFGuardConfig = field(default_factory=GIFGuardConfig)
     webp: WEBPConfig = field(default_factory=WEBPConfig)
-
-    # Legacy flat access compatibility: gif_cfg.target_min_mb, gif_cfg.max_safe_iterations, etc.
-    _legacy_aliases: ClassVar[dict] = {
-        "target_min_mb": ("targets", "target_min_mb"),
-        "target_max_mb": ("targets", "target_max_mb"),
-        "preferred_min_mb": ("targets", "preferred_min_mb"),
-        "preferred_max_mb": ("targets", "preferred_max_mb"),
-        "min_process_size_mb": ("targets", "min_process_size_mb"),
-        "max_safe_iterations": ("runtime", "max_safe_iterations"),
-        "extra_palette": ("runtime", "extra_palette"),
-        "process_pool_tasks_per_worker": ("runtime", "process_pool_tasks_per_worker"),
-        "max_scale_step_ratio": ("runtime", "max_scale_step_ratio"),
-        "neighbor_scale_safety": ("prediction", "neighbor_scale_safety"),
-        "neighbor_scale_safety_confident": ("prediction", "neighbor_scale_safety_confident"),
-        "neighbor_scale_confident_min_count": ("prediction", "neighbor_scale_confident_min_count"),
-        "neighbor_scale_confident_max_std": ("prediction", "neighbor_scale_confident_max_std"),
-        "stats_source_bias_extra": ("prediction", "stats_source_bias_extra"),
-        "neighbor_source_bias_extra": ("prediction", "neighbor_source_bias_extra"),
-        "temporal_preserve_enabled": ("temporal", "temporal_preserve_enabled"),
-        "temporal_min_frames": ("temporal", "temporal_min_frames"),
-        "temporal_max_pixels": ("temporal", "temporal_max_pixels"),
-        "temporal_max_keep_every": ("temporal", "temporal_max_keep_every"),
-        "quality_retry_small_res_enabled": ("temporal", "quality_retry_small_res_enabled"),
-        "quality_retry_min_scale": ("temporal", "quality_retry_min_scale"),
-        "sample_probe_enabled": ("sample_probe", "sample_probe_enabled"),
-        "sample_probe_max_frames": ("sample_probe", "sample_probe_max_frames"),
-        "sample_probe_min_frames": ("sample_probe", "sample_probe_min_frames"),
-        "sample_probe_neighbor_min_palette": ("sample_probe", "sample_probe_neighbor_min_palette"),
-        "sample_probe_neighbor_min_frames": ("sample_probe", "sample_probe_neighbor_min_frames"),
-        "fast_direct_accept_enabled": ("skip", "fast_direct_accept_enabled"),
-        "fast_direct_min_frames": ("skip", "fast_direct_min_frames"),
-        "probe_skip_overflow_margin": ("skip", "probe_skip_overflow_margin"),
-        "sample_probe_overflow_margin": ("skip", "sample_probe_overflow_margin"),
-        "probe_skip_underflow_margin_mb": ("skip", "probe_skip_underflow_margin_mb"),
-        "fast_probe_hard_skip_ratio": ("skip", "fast_probe_hard_skip_ratio"),
-        "medcut_overhead_guard_enabled": ("guard", "medcut_overhead_guard_enabled"),
-        "medcut_overhead_guard_margin_mb": ("guard", "medcut_overhead_guard_margin_mb"),
-        "medcut_overhead_guard_max_hits": ("guard", "medcut_overhead_guard_max_hits"),
-        "webp_animated_max_iterations": ("webp", "webp_animated_max_iterations"),
-        "webp_static_max_iterations": ("webp", "webp_static_max_iterations"),
-        "webp_static_method_default": ("webp", "webp_static_method_default"),
-        "webp_animated_method_default": ("webp", "webp_animated_method_default"),
-        "webp_animated_direct_final_fast_enabled": ("webp", "webp_animated_direct_final_fast_enabled"),
-        "webp_animated_direct_final_fast_method": ("webp", "webp_animated_direct_final_fast_method"),
-        "webp_animated_direct_final_fast_max_growth": ("webp", "webp_animated_direct_final_fast_max_growth"),
-        "webp_animated_direct_final_fast_safety_ratio": ("webp", "webp_animated_direct_final_fast_safety_ratio"),
-        "webp_animated_direct_final_enabled": ("webp", "webp_animated_direct_final_enabled"),
-        "webp_animated_direct_final_init_tolerance_mb": ("webp", "webp_animated_direct_final_init_tolerance_mb"),
-        "webp_file_max_seconds": ("webp", "webp_file_max_seconds"),
-        "webp_animated_near_band_ratio": ("webp", "webp_animated_near_band_ratio"),
-        "webp_animated_nudge_small_ratio": ("webp", "webp_animated_nudge_small_ratio"),
-        "webp_animated_nudge_small_step": ("webp", "webp_animated_nudge_small_step"),
-        "webp_animated_nudge_large_step": ("webp", "webp_animated_nudge_large_step"),
-        "webp_animated_startup_min_count": ("webp", "webp_animated_startup_min_count"),
-        "webp_animated_max_seconds_per_frame": ("webp", "webp_animated_max_seconds_per_frame"),
-        "webp_sample_probe_enabled": ("webp", "webp_sample_probe_enabled"),
-        "webp_sample_probe_min_frames": ("webp", "webp_sample_probe_min_frames"),
-        "webp_sample_probe_sample_count": ("webp", "webp_sample_probe_sample_count"),
-        "webp_sample_probe_bias": ("webp", "webp_sample_probe_bias"),
-        "webp_animated_new_file_fastpath_enabled": ("webp", "webp_animated_new_file_fastpath_enabled"),
-        "webp_animated_new_file_fastpath_overflow_ratio": ("webp", "webp_animated_new_file_fastpath_overflow_ratio"),
-        "webp_animated_new_file_fastpath_resize_q_threshold": ("webp", "webp_animated_new_file_fastpath_resize_q_threshold"),
-    }
-
-    def __getattr__(self, name):
-        alias = self._legacy_aliases.get(name)
-        if alias is None:
-            raise AttributeError(f"{type(self).__name__!s} has no attribute {name!r}")
-        section_name, attr_name = alias
-        return getattr(getattr(self, section_name), attr_name)
 
 
 @dataclass(frozen=True)

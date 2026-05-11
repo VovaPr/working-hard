@@ -223,7 +223,7 @@ def _try_near_target_nudge(
     local_version,
 ):
     near_mid_ratio = abs(effective_size - target_mid_bytes) / target_mid_bytes if target_mid_bytes > 0 else 0.0
-    if near_mid_ratio > gif_cfg.webp_animated_near_band_ratio or bracket_known:
+    if near_mid_ratio > gif_cfg.webp.webp_animated_near_band_ratio or bracket_known:
         return None
 
     miss_ratio = (
@@ -234,9 +234,9 @@ def _try_near_target_nudge(
         else 0.0
     )
     nudge_step = (
-        gif_cfg.webp_animated_nudge_small_step
-        if miss_ratio <= gif_cfg.webp_animated_nudge_small_ratio
-        else gif_cfg.webp_animated_nudge_large_step
+        gif_cfg.webp.webp_animated_nudge_small_step
+        if miss_ratio <= gif_cfg.webp.webp_animated_nudge_small_ratio
+        else gif_cfg.webp.webp_animated_nudge_large_step
     )
     next_quality = min(100, quality + nudge_step) if effective_size < target_min_bytes else max(45, quality - nudge_step)
     print(
@@ -690,7 +690,7 @@ def _persist_max_iterations(
     path,
     started_at,
 ):
-    final_msg = f"could not hit {gif_cfg.target_min_mb:.2f}-{gif_cfg.target_max_mb:.2f} MB"
+    final_msg = f"could not hit {gif_cfg.targets.target_min_mb:.2f}-{gif_cfg.targets.target_max_mb:.2f} MB"
     persisted = persist_best_effort(
         reason="max-iterations",
         local_version=local_version,

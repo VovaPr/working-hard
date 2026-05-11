@@ -22,12 +22,12 @@ def run_webp_sample_probe(*, frames, durations, quality, target_mid_bytes, frame
     Returns the corrected quality (int) if it differs from the input quality by >= 3 units,
     otherwise returns None (caller keeps the original quality unchanged).
     """
-    if not gif_cfg.webp_sample_probe_enabled:
+    if not gif_cfg.webp.webp_sample_probe_enabled:
         return None, None
-    if frame_count < gif_cfg.webp_sample_probe_min_frames:
+    if frame_count < gif_cfg.webp.webp_sample_probe_min_frames:
         return None, None
 
-    sample_n = min(gif_cfg.webp_sample_probe_sample_count, frame_count)
+    sample_n = min(gif_cfg.webp.webp_sample_probe_sample_count, frame_count)
     indices = _select_sample_indices(frame_count, sample_n)
     sample_frames = [frames[i] for i in indices]
     sample_durations = [durations[i] for i in indices] if isinstance(durations, (list, tuple)) else durations
@@ -41,7 +41,7 @@ def run_webp_sample_probe(*, frames, durations, quality, target_mid_bytes, frame
     probe_elapsed = time.time() - probe_start
 
     probe_size = len(probe_buf.getvalue())
-    predicted_full = _extrapolate_full_size(probe_size, sample_n, frame_count, gif_cfg.webp_sample_probe_bias)
+    predicted_full = _extrapolate_full_size(probe_size, sample_n, frame_count, gif_cfg.webp.webp_sample_probe_bias)
     corrected_quality = _compute_corrected_quality(quality, predicted_full, target_mid_bytes)
 
     probe_observation = (quality, int(predicted_full))

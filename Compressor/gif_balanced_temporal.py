@@ -30,12 +30,12 @@ def _try_temporal_preserve(
     version,
 ):
     can_try_temporal_preserve = (
-        gif_cfg.temporal_preserve_enabled
+        gif_cfg.temporal.temporal_preserve_enabled
         and not state.temporal_applied
         and iteration == 0
-        and med_size > gif_cfg.target_max_mb
-        and total_frames >= gif_cfg.temporal_min_frames
-        and (width * height) <= gif_cfg.temporal_max_pixels
+        and med_size > gif_cfg.targets.target_max_mb
+        and total_frames >= gif_cfg.temporal.temporal_min_frames
+        and (width * height) <= gif_cfg.temporal.temporal_max_pixels
         and state.scale < 0.85
     )
     if not can_try_temporal_preserve:
@@ -48,7 +48,7 @@ def _try_temporal_preserve(
         }
 
     target_ratio = med_size / target_mid if target_mid > 0 else 1.0
-    keep_every = max(2, min(gif_cfg.temporal_max_keep_every, int(round(target_ratio))))
+    keep_every = max(2, min(gif_cfg.temporal.temporal_max_keep_every, int(round(target_ratio))))
     t_frames, t_durations = temporal_reduce(frames_raw, durations, keep_every)
 
     if len(t_frames) >= len(frames_raw):
@@ -151,20 +151,20 @@ def _try_quality_retry(
     version,
 ):
     can_try_quality_retry = (
-        gif_cfg.quality_retry_small_res_enabled
+        gif_cfg.temporal.quality_retry_small_res_enabled
         and not state.quality_retry_done
         and not state.temporal_applied
         and iteration == 0
         and in_target
         and small_res_high_frames
-        and state.scale < gif_cfg.quality_retry_min_scale
+        and state.scale < gif_cfg.temporal.quality_retry_min_scale
     )
     if not can_try_quality_retry:
         return False
 
     state.quality_retry_done = True
     target_ratio = med_size / target_mid if target_mid > 0 else 1.0
-    keep_every = max(2, min(gif_cfg.temporal_max_keep_every, int(round(target_ratio))))
+    keep_every = max(2, min(gif_cfg.temporal.temporal_max_keep_every, int(round(target_ratio))))
     q_frames, q_durations = temporal_reduce(frames_raw, durations, keep_every)
 
     if len(q_frames) >= len(frames_raw):

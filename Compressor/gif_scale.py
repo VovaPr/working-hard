@@ -16,14 +16,14 @@ def _choose_initial_scale(stats_mgr, palette_limit, width, height, total_frames,
         neighbor_count = neighbor_profile["count"]
 
         is_confident_neighbor = (
-            neighbor_count >= gif_cfg.neighbor_scale_confident_min_count
-            and neighbor_std <= gif_cfg.neighbor_scale_confident_max_std
+            neighbor_count >= gif_cfg.prediction.neighbor_scale_confident_min_count
+            and neighbor_std <= gif_cfg.prediction.neighbor_scale_confident_max_std
         )
 
         safety = (
-            gif_cfg.neighbor_scale_safety_confident
+            gif_cfg.prediction.neighbor_scale_safety_confident
             if is_confident_neighbor
-            else gif_cfg.neighbor_scale_safety
+            else gif_cfg.prediction.neighbor_scale_safety
         )
 
         safe_neighbor_scale = neighbor_scale * safety
@@ -64,7 +64,7 @@ def _next_scale(scale, low_scale, high_scale, med_cache, target_mid, max_step_ra
 
 
 def _advance_scale_after_medcut(*, state, med_size, target_mid, gif_cfg, med_cache, version):
-    if med_size > gif_cfg.target_max_mb:
+    if med_size > gif_cfg.targets.target_max_mb:
         state.high_scale = state.scale
     else:
         state.low_scale = state.scale
@@ -73,7 +73,7 @@ def _advance_scale_after_medcut(*, state, med_size, target_mid, gif_cfg, med_cac
     if med_size > 0:
         adaptive_scale = state.scale * (target_mid / med_size) ** 0.5
 
-    max_adaptive_step_ratio = min(0.35, gif_cfg.max_scale_step_ratio * 2.5)
+    max_adaptive_step_ratio = min(0.35, gif_cfg.runtime.max_scale_step_ratio * 2.5)
     adaptive_step = state.scale * max_adaptive_step_ratio
     if abs(adaptive_scale - state.scale) > adaptive_step:
         direction = 1 if adaptive_scale > state.scale else -1
@@ -89,7 +89,7 @@ def _advance_scale_after_medcut(*, state, med_size, target_mid, gif_cfg, med_cac
             high_scale=state.high_scale,
             med_cache=med_cache,
             target_mid=target_mid,
-            max_step_ratio=gif_cfg.max_scale_step_ratio,
+            max_step_ratio=gif_cfg.runtime.max_scale_step_ratio,
         )
     print(f"{version} | [gif.next-scale] Compute next scale")
     print(f"{version} | [gif.next-scale] Next scale={new_scale:.3f}")

@@ -89,19 +89,19 @@ def _handle_overhead_guard(
     medcut_overhead_mb = med_size - med_input["fast_size"]
     print(f"{version} | [gif.compare] Delta vs FASTOCTREE = {medcut_overhead_mb:+.2f} MB")
 
-    if medcut_overhead_mb >= gif_cfg.medcut_overhead_guard_margin_mb:
+    if medcut_overhead_mb >= gif_cfg.guard.medcut_overhead_guard_margin_mb:
         state.medcut_overhead_hits += 1
         print(
             f"{version} | [gif.guard] MEDIANCUT overhead hit "
-            f"{state.medcut_overhead_hits}/{gif_cfg.medcut_overhead_guard_max_hits} "
+            f"{state.medcut_overhead_hits}/{gif_cfg.guard.medcut_overhead_guard_max_hits} "
             f"(delta={medcut_overhead_mb:+.2f} MB)"
         )
     else:
         state.medcut_overhead_hits = 0
 
     guard_triggered = (
-        gif_cfg.medcut_overhead_guard_enabled
-        and state.medcut_overhead_hits >= gif_cfg.medcut_overhead_guard_max_hits
+        gif_cfg.guard.medcut_overhead_guard_enabled
+        and state.medcut_overhead_hits >= gif_cfg.guard.medcut_overhead_guard_max_hits
     )
     if not guard_triggered:
         return {"status": "pass"}

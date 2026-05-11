@@ -173,9 +173,9 @@ def compress_until_under_target(path, version, target_size):
 def _compress_static_webp_like_jpg(image, target_size, version, gif_cfg, started_at):
     quality = 95
     resize_count = 0
-    webp_method = max(0, min(6, gif_cfg.webp_static_method_default))
+    webp_method = max(0, min(6, gif_cfg.webp.webp_static_method_default))
 
-    for step in range(1, gif_cfg.webp_static_max_iterations + 1):
+    for step in range(1, gif_cfg.webp.webp_static_max_iterations + 1):
         quality = max(1, min(100, int(quality)))
         buf = io.BytesIO()
         image.save(buf, "WEBP", quality=quality, method=webp_method)
@@ -189,7 +189,7 @@ def _compress_static_webp_like_jpg(image, target_size, version, gif_cfg, started
         if file_size <= target_size:
             return buf, file_size, quality, resize_count, True
 
-        if elapsed >= gif_cfg.webp_file_max_seconds:
+        if elapsed >= gif_cfg.webp.webp_file_max_seconds:
             print(
                 f"{version} | ⚠ WEBP static timeout {elapsed:.2f} sec; "
                 "file kept unchanged"

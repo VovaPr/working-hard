@@ -43,7 +43,7 @@ def balanced_compress_gif(
         debug_log=debug_log,
     )
     if not converged:
-        print(f"{version} | [gif.fail] Failed to converge after {gif_cfg.max_safe_iterations} iterations")
+        print(f"{version} | [gif.fail] Failed to converge after {gif_cfg.runtime.max_safe_iterations} iterations")
 
     # Flush all deferred stats to disk (batch write)
     runtime["stats_mgr"].flush_stats()

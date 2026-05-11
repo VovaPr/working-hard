@@ -58,10 +58,10 @@ def _try_fast_accept(
     fast_in_target = is_in_target_range(fast_size, gif_cfg)
 
     can_fast_direct_accept = (
-        gif_cfg.fast_direct_accept_enabled
+        gif_cfg.skip.fast_direct_accept_enabled
         and iteration == 0
         and fast_in_target
-        and total_frames >= gif_cfg.fast_direct_min_frames
+        and total_frames >= gif_cfg.skip.fast_direct_min_frames
     )
     if can_fast_direct_accept:
         fast_saved_size = len(fast_bytes) / (1024 * 1024)

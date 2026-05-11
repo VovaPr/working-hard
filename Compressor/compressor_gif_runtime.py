@@ -32,11 +32,11 @@ class SkipDecision:
 
 
 def is_in_target_range(size_mb, gif_cfg):
-    return gif_cfg.target_min_mb <= size_mb <= gif_cfg.target_max_mb + 0.005
+    return gif_cfg.targets.target_min_mb <= size_mb <= gif_cfg.targets.target_max_mb + 0.005
 
 
 def is_in_preferred_range(size_mb, gif_cfg):
-    return gif_cfg.preferred_min_mb <= size_mb <= gif_cfg.preferred_max_mb
+    return gif_cfg.targets.preferred_min_mb <= size_mb <= gif_cfg.targets.preferred_max_mb
 
 
 def predict_medcut_size(
@@ -61,10 +61,10 @@ def predict_medcut_size(
     )
     predicted = clamp_prediction_fn(predicted, fast_size)
     if source == "stats":
-        predicted *= gif_cfg.stats_source_bias_extra
+        predicted *= gif_cfg.prediction.stats_source_bias_extra
         predicted = clamp_prediction_fn(predicted, fast_size)
     elif source.startswith("neighbor stats"):
-        predicted *= gif_cfg.neighbor_source_bias_extra
+        predicted *= gif_cfg.prediction.neighbor_source_bias_extra
         predicted = clamp_prediction_fn(predicted, fast_size)
     return predicted
 
@@ -88,35 +88,35 @@ def build_skip_decision(
 ):
     fresh_probe = sample_probe_measured_this_iter and sample_ratio is not None
     overflow_margin = (
-        gif_cfg.sample_probe_overflow_margin if fresh_probe
-        else gif_cfg.probe_skip_overflow_margin
+        gif_cfg.skip.sample_probe_overflow_margin if fresh_probe
+        else gif_cfg.skip.probe_skip_overflow_margin
     )
 
     can_skip_first_med = (
         iteration == 0
         and (source == "formula (conservative)" or source_is_neighbor)
-        and predicted_medcut > gif_cfg.target_max_mb * 1.20
-        and fast_size > gif_cfg.target_max_mb * 0.90
+        and predicted_medcut > gif_cfg.targets.target_max_mb * 1.20
+        and fast_size > gif_cfg.targets.target_max_mb * 0.90
     )
     can_skip_probe_overflow = (
         iteration <= 1
         and (should_probe_formula or should_probe_neighbor)
         and sample_ratio is not None
-        and predicted_medcut > gif_cfg.target_max_mb * overflow_margin
+        and predicted_medcut > gif_cfg.targets.target_max_mb * overflow_margin
     )
     can_skip_probe_underflow = (
         iteration <= 1
         and (should_probe_formula or should_probe_neighbor)
         and sample_ratio is not None
-        and predicted_medcut < (gif_cfg.target_min_mb - gif_cfg.probe_skip_underflow_margin_mb)
+        and predicted_medcut < (gif_cfg.targets.target_min_mb - gif_cfg.skip.probe_skip_underflow_margin_mb)
     )
     can_skip_formula_extra = (
         iteration == 1
         and source == "formula (conservative)"
         and not formula_extra_skip_used
         and sample_ratio is not None
-        and predicted_medcut > gif_cfg.target_max_mb * 1.10
-        and fast_size > gif_cfg.target_min_mb * 0.90
+        and predicted_medcut > gif_cfg.targets.target_max_mb * 1.10
+        and fast_size > gif_cfg.targets.target_min_mb * 0.90
     )
 
     should_skip = (

@@ -129,11 +129,11 @@ class AnimatedWebPStatsManager:
     def select_startup_plan(self, width, height, frames, init_size_mb, target_min_mb, target_max_mb, gif_cfg):
         # Fuzzy matching tolerances
         max_diff_ratio = 0.03  # 3% для размеров и кадров
-        init_tolerance = max(0.15, float(gif_cfg.webp_animated_direct_final_init_tolerance_mb))  # 0.15 MB или config
+        init_tolerance = max(0.15, float(gif_cfg.webp.webp_animated_direct_final_init_tolerance_mb))  # 0.15 MB или config
         target_mid_mb = (target_min_mb + target_max_mb) / 2.0
         candidates = []
 
-        min_count = max(1, int(gif_cfg.webp_animated_startup_min_count))
+        min_count = max(1, int(gif_cfg.webp.webp_animated_startup_min_count))
 
         for entry in self.webp_stats:
             width_diff = abs(entry["width"] - width) / max(width, 1)
@@ -164,13 +164,13 @@ class AnimatedWebPStatsManager:
                 width_diff < 1e-6 and height_diff < 1e-6 and frame_diff < 1e-6 and init_diff < 1e-6
             )
             direct_final = bool(
-                gif_cfg.webp_animated_direct_final_enabled
+                gif_cfg.webp.webp_animated_direct_final_enabled
                 and strong_profile_match
             )
             candidates.append(
                 {
                     "quality": entry["quality"],
-                    "method": entry.get("method", gif_cfg.webp_animated_method_default),
+                    "method": entry.get("method", gif_cfg.webp.webp_animated_method_default),
                     "result_size_mb": result_size,
                     "count": entry_count,
                     "init_diff": init_diff,

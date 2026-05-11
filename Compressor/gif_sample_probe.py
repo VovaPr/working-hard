@@ -26,7 +26,7 @@ def _run_sample_probe(
     sample_probe_measured_this_iter = False
 
     if (
-        gif_cfg.sample_probe_enabled
+        gif_cfg.sample_probe.sample_probe_enabled
         and not state.sample_probe_done
         and iteration <= 1
         and (should_probe_formula or should_probe_neighbor)
