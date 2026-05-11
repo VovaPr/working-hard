@@ -34,7 +34,7 @@ def _handle_medcut_disabled_path(
     if is_in_target_range(fast_size, gif_cfg):
         fast_saved_size = len(fast_bytes) / (1024 * 1024)
         stats_mgr.save_stats(palette_limit, width, height, total_frames, fast_size, fast_saved_size, state.scale)
-        print(f"{version} | [gif.guard] FAST-only path reached target range")
+        print(f"{version} | [gif.guard] | FAST-only path reached target range")
         _save_success_result(
             input_path=input_path,
             output_bytes=fast_bytes,
@@ -51,7 +51,7 @@ def _handle_medcut_disabled_path(
         )
         return "done"
 
-    print(f"{version} | [gif.guard] MEDIANCUT disabled; FAST-only search continues")
+    print(f"{version} | [gif.guard] | MEDIANCUT disabled; FAST-only search continues")
     _advance_fast_only_scale(state=state, fast_size=fast_size, target_mid=target_mid, gif_cfg=gif_cfg, version=version)
     return "continue"
 
@@ -75,7 +75,7 @@ def _run_fast_trial_stage(
     started_at,
     version,
 ):
-    print(f"{version} | [gif.fast] Iteration {iteration+1}: FASTOCTREE trial")
+    print(f"{version} | [gif.fast] | Iteration {iteration+1}: FASTOCTREE trial")
     resized_frames, fast_size, fast_bytes = _run_fastoctree_trial(
         iteration=iteration,
         scale=state.scale,
@@ -177,8 +177,8 @@ def _probe_and_build_skip_decision(
         total_frames=total_frames,
         version=version,
     )
-    print(f"{version} | [gif.predict] -> Predicted MEDIANCUT={predicted_medcut:.2f} MB | scale={state.scale:.3f}")
-    print(f"{version} | [gif.predict] -> source: {source}")
+    print(f"{version} | [gif.predict] | -> Predicted MEDIANCUT={predicted_medcut:.2f} MB | scale={state.scale:.3f}")
+    print(f"{version} | [gif.predict] | -> source: {source}")
 
     skip_decision = build_skip_decision(
         iteration=iteration,
@@ -474,14 +474,14 @@ def _apply_prepare_adjustments(
 def _apply_skip_decision_if_any(*, iteration, source_is_neighbor, skip_decision, state, version, debug_log):
     if not skip_decision.should_skip:
         return False
-    print(f"{version} | [gif.skip] Skip decision: build_skip_decision skip ({skip_decision.reason})")
+        print(f"{version} | [gif.skip] | Skip decision: build_skip_decision skip ({skip_decision.reason})")
     debug_log(f"decision=skip | reason={skip_decision.reason}")
     state.low_scale = skip_decision.next_low_scale
     state.high_scale = skip_decision.next_high_scale
     if skip_decision.mark_formula_extra_skip_used:
         state.formula_extra_skip_used = True
-    print(f"{version} | [gif.skip] Skipping MEDIANCUT on iter {iteration+1} ({skip_decision.reason})")
-    print(f"{version} | [gif.skip] -> next scale={skip_decision.suggested_scale:.3f}")
+        print(f"{version} | [gif.skip] | Skipping MEDIANCUT on iter {iteration+1} ({skip_decision.reason})")
+        print(f"{version} | [gif.skip] | -> next scale={skip_decision.suggested_scale:.3f}")
     state.scale = skip_decision.suggested_scale
     return True
 

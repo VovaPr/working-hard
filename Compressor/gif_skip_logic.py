@@ -82,11 +82,11 @@ def _try_formula_under_target_skip(
     suggested_scale = ScaleStrategy.apply_step_cap(state.scale, suggested_scale, max_step_ratio=(max_up_step / state.scale if state.scale > 0 else 0.30))
     suggested_scale = ScaleStrategy.clamp_to_bracket(suggested_scale, state.low_scale, state.high_scale)
 
-    print(f"{version} | [gif.skip] Skip decision: formula-under-target skip")
+    print(f"{version} | [gif.skip] | Skip decision: formula-under-target skip")
     print(
-        f"{version} | [gif.skip] Skipping MEDIANCUT on iter {iteration+1} "
+        f"{version} | [gif.skip] | Skipping MEDIANCUT on iter {iteration+1} "
         "(formula under-target pre-adjust)"
     )
-    print(f"{version} | [gif.skip] -> next scale={suggested_scale:.3f}")
+    print(f"{version} | [gif.skip] | -> next scale={suggested_scale:.3f}")
     state.scale = suggested_scale
     return True

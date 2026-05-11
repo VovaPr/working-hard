@@ -39,7 +39,7 @@ def _decode_gif_input(input_path, gif_cfg, version):
         for frame in ImageSequence.Iterator(img):
             frames_raw.append(frame.convert("RGB"))
             durations.append(frame.info.get("duration", 100))
-        print(f"{version} | [gif.diag] decode={time.time() - decode_start:.2f}s ({total_frames} frames)")
+        print(f"{version} | [gif.diag] | decode={time.time() - decode_start:.2f}s ({total_frames} frames)")
 
     return {
         "frames_raw": frames_raw,
@@ -61,7 +61,7 @@ def _build_runtime_context(*, decoded, gif_cfg, stats_file, version, debug_log):
     init_size = decoded["init_size"]
 
     workers = max(1, (os.cpu_count() or 4) // 2)
-    print(f"{version} | [gif.prepare] Using {workers} workers for {total_frames} frames")
+    print(f"{version} | [gif.prepare] | Using {workers} workers for {total_frames} frames")
     debug_log(f"log_level runtime | max_safe_iterations={gif_cfg.max_safe_iterations}")
 
     target_mid = (gif_cfg.target_min_mb + gif_cfg.target_max_mb) / 2
@@ -80,8 +80,8 @@ def _build_runtime_context(*, decoded, gif_cfg, stats_file, version, debug_log):
         gif_cfg,
     )
 
-    print(f"{version} | [gif.predict] Prediction source: {source}")
-    print(f"{version} | [gif.predict] -> initial scale={scale:.3f}")
+    print(f"{version} | [gif.predict] | Prediction source: {source}")
+    print(f"{version} | [gif.predict] | -> initial scale={scale:.3f}")
 
     state = GifRuntimeState(
         scale=scale,
@@ -127,7 +127,7 @@ def _run_balanced_loop(
 
     pool_start = time.time()
     with ProcessPoolExecutor(max_workers=runtime["workers"]) as executor:
-        print(f"{version} | [gif.diag] pool_startup={time.time() - pool_start:.2f}s")
+        print(f"{version} | [gif.diag] | pool_startup={time.time() - pool_start:.2f}s")
         for iteration in range(gif_cfg.max_safe_iterations):
             result = _run_balanced_iteration(
                 iteration=iteration,

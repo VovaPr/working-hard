@@ -13,5 +13,5 @@ def _advance_fast_only_scale(*, state, fast_size, target_mid, gif_cfg, version):
     suggested_scale = ScaleStrategy.apply_step_cap(state.scale, suggested_scale, max_step_ratio=max_step_ratio)
     suggested_scale = ScaleStrategy.clamp_to_bracket(suggested_scale, state.low_scale, state.high_scale)
 
-    print(f"{version} | [gif.guard] FAST-only next scale={suggested_scale:.3f}")
+    print(f"{version} | [gif.guard] | FAST-only next scale={suggested_scale:.3f}")
     state.scale = suggested_scale

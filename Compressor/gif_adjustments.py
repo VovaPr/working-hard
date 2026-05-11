@@ -41,7 +41,7 @@ def _apply_iter0_adjustments(
     if can_pre_correct:
         debug_log("decision=pre_correction | reason=iter0/formula_or_delta and prediction well below target")
         state.scale *= 0.92
-        print(f"{version} | [gif.adjust] Pre-correction (iter 0) -> scale={state.scale:.3f}")
+        print(f"{version} | [gif.adjust] | Pre-correction (iter 0) -> scale={state.scale:.3f}")
         resized_frames_out, fast_size, fast_bytes = _run_fastoctree_trial(
             iteration=iteration,
             scale=state.scale,
@@ -74,7 +74,7 @@ def _apply_iter0_adjustments(
         if state.low_scale < suggested_scale < state.high_scale and abs(suggested_scale - state.scale) > 0.005:
             debug_log("decision=soft_pre_shrink | reason=formula near upper target bound")
             state.scale = suggested_scale
-            print(f"{version} | [gif.adjust] Soft pre-shrink (iter 0) -> scale={state.scale:.3f}")
+            print(f"{version} | [gif.adjust] | Soft pre-shrink (iter 0) -> scale={state.scale:.3f}")
             resized_frames_out, fast_size, fast_bytes = _run_fastoctree_trial(
                 iteration=iteration,
                 scale=state.scale,
@@ -125,7 +125,7 @@ def _apply_iter0_adjustments(
             debug_log("decision=micro_adjust | reason=neighbor_stats and fast below 0.9*target_mid")
             state.scale = adj_scale
             state.micro_adjust_used = True
-            print(f"{version} | [gif.adjust] Micro-adjusting scale -> {state.scale:.3f}")
+            print(f"{version} | [gif.adjust] | Micro-adjusting scale -> {state.scale:.3f}")
             resized_frames_out, fast_size, fast_bytes = _run_fastoctree_trial(
                 iteration=iteration,
                 scale=state.scale,
