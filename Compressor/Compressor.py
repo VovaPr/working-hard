@@ -154,13 +154,7 @@ CONFIG = AppConfig()
 
 # Initialize artifact manager
 _artifact_mgr = get_artifact_manager(os.path.dirname(__file__))
-
-# Backward-compatible aliases
-ROOT_FOLDER_PATH = CONFIG.root_folder_path
-VERSION = CONFIG.version
 STATS_FILE = _artifact_mgr.get_stats_path()
-TARGET_SIZE = CONFIG.jpg.target_size
-QUALITY_MAX = CONFIG.jpg.quality_max
 
 RUN_METRICS = {
     "scan_sec": 0.0,
@@ -190,14 +184,14 @@ LOG_LEVEL = _parse_log_level(sys.argv)
 
 def debug_log(message):
     if LOG_LEVEL == "DEBUG":
-        print(f"{VERSION} | Debug | {message}")
+        print(f"{CONFIG.version} | Debug | {message}")
 
 
 def scan_media_candidates(root_folder_path):
     """Single filesystem pass that classifies files for later processing."""
     return scan_media_candidates_impl(
         root_folder_path=root_folder_path,
-        target_size=TARGET_SIZE,
+        target_size=CONFIG.jpg.target_size,
         min_process_size_mb=CONFIG.gif.targets.min_process_size_mb,
         run_metrics=RUN_METRICS,
     )
@@ -209,8 +203,8 @@ def process_images(png_paths, jpg_paths, static_webp_paths):
         png_paths,
         jpg_paths,
         static_webp_paths,
-        version=VERSION,
-        target_size=TARGET_SIZE,
+        version=CONFIG.version,
+        target_size=CONFIG.jpg.target_size,
         gif_cfg=CONFIG.gif,
     )
 
@@ -219,7 +213,7 @@ def compress_animated_webp_until_under_target(path, gif_cfg=CONFIG.gif):
     return webp_compress_animated(
         path=path,
         gif_cfg=gif_cfg,
-        version=VERSION,
+        version=CONFIG.version,
         stats_file=STATS_FILE,
     )
 
@@ -231,7 +225,7 @@ def process_gifs(gif_paths, animated_webp_paths):
         gif_paths,
         animated_webp_paths,
         gif_cfg=CONFIG.gif,
-        version=VERSION,
+        version=CONFIG.version,
         stats_file=STATS_FILE,
         log_level=LOG_LEVEL,
         compress_animated_webp_until_under_target=compress_animated_webp_until_under_target,
@@ -248,8 +242,8 @@ if __name__ == "__main__":
 
     run_pipeline(
         PipelineApi(
-            version=VERSION,
-            root_folder_path=ROOT_FOLDER_PATH,
+            version=CONFIG.version,
+            root_folder_path=CONFIG.root_folder_path,
             stats_file=STATS_FILE,
             stats_soft_limit_mb=CONFIG.stats_soft_limit_mb,
             run_metrics=RUN_METRICS,

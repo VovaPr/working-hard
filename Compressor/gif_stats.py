@@ -25,10 +25,6 @@ class CompressorStatsManager:
         except Exception:
             self.stats = []
 
-    def save_stats(self, palette, width, height, frames, fast_size, med_size, scale):
-        """DEPRECATED: Use defer_stats() instead. Kept for backward compatibility."""
-        self.defer_stats(palette, width, height, frames, fast_size, med_size, scale)
-
     def defer_stats(self, palette, width, height, frames, fast_size, med_size, scale):
         """Queue stats entry for batch write (memory only, no I/O)."""
         entry = {
