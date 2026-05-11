@@ -54,6 +54,7 @@ def resolve_runtime_settings(gif_cfg, frame_count, local_version, direct_final_f
     webp_method = max(0, min(6, gif_cfg.webp_animated_method_default))
     webp_method_direct_fast = max(0, min(6, gif_cfg.webp_animated_direct_final_fast_method))
     direct_fast_growth = max(1.0, float(gif_cfg.webp_animated_direct_final_fast_max_growth))
+    direct_fast_safety_ratio = max(0.50, min(1.0, float(gif_cfg.webp_animated_direct_final_fast_safety_ratio)))
     effective_max_seconds = max(
         gif_cfg.webp_file_max_seconds,
         (frame_count or 0) * gif_cfg.webp_animated_max_seconds_per_frame,
@@ -70,7 +71,9 @@ def resolve_runtime_settings(gif_cfg, frame_count, local_version, direct_final_f
         and gif_cfg.webp_animated_direct_final_fast_enabled
         and known_result_size_mb is not None
     ):
-        can_use_direct_fast = (known_result_size_mb * direct_fast_growth) <= gif_cfg.target_max_mb
+        projected_fast_mb = known_result_size_mb * direct_fast_growth
+        safe_target_max_mb = gif_cfg.target_max_mb * direct_fast_safety_ratio
+        can_use_direct_fast = projected_fast_mb <= safe_target_max_mb
 
     if direct_final_from_stats:
         direct_mode = webp_method_direct_fast if can_use_direct_fast else webp_method
@@ -80,7 +83,8 @@ def resolve_runtime_settings(gif_cfg, frame_count, local_version, direct_final_f
         if gif_cfg.webp_animated_direct_final_fast_enabled and not can_use_direct_fast:
             print(
                 f"{local_version} | [webp.startup] | direct-fast skipped | "
-                f"known={known_result_size_mb:.2f} MB growth_limit={direct_fast_growth:.2f}x"
+                f"known={known_result_size_mb:.2f} MB growth_limit={direct_fast_growth:.2f}x "
+                f"safety={direct_fast_safety_ratio:.2f}"
             )
 
     return {

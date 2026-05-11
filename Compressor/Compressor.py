@@ -81,6 +81,9 @@ class GIFConfig:
     # Use fast direct-final method only if known method=2 result has enough headroom.
     # If fast method is likely to inflate size beyond target, skip it and use method=2 directly.
     webp_animated_direct_final_fast_max_growth: float = 1.10
+    # Extra guard for fast direct-final: require predicted fast size to stay comfortably
+    # below the hard upper target bound to avoid costly fallback re-encode.
+    webp_animated_direct_final_fast_safety_ratio: float = 0.96
     webp_animated_direct_final_enabled: bool = True
     webp_animated_direct_final_init_tolerance_mb: float = 0.35
     # Max wall-clock seconds per file. Effective limit = max(this, frames * per_frame).
