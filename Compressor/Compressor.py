@@ -71,6 +71,7 @@ class GIFConfig:
     process_pool_tasks_per_worker: int = 4
     fast_probe_hard_skip_ratio: float = 1.30
     stats_source_bias_extra: float = 1.08  # Extra conservative bias when predicting from stats source
+    neighbor_source_bias_extra: float = 1.04  # Extra conservative bias for neighbor-based predictions to account for variance
     webp_animated_max_iterations: int = 12
     webp_static_max_iterations: int = 12
     webp_static_method_default: int = 4

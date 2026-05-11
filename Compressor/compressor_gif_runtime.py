@@ -76,6 +76,9 @@ def predict_medcut_size(
     if source == "stats":
         predicted *= gif_cfg.stats_source_bias_extra
         predicted = clamp_prediction_fn(predicted, fast_size)
+    elif source.startswith("neighbor stats"):
+        predicted *= gif_cfg.neighbor_source_bias_extra
+        predicted = clamp_prediction_fn(predicted, fast_size)
     return predicted
 
 
