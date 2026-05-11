@@ -7,7 +7,7 @@ What this compressor does:
 """
 
 # Single source of truth for the application version.
-APP_VERSION = "2.0.48"
+APP_VERSION = "2.0.49"
 
 # Standard library imports
 import os, sys, time, subprocess
