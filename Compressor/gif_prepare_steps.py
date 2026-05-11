@@ -208,6 +208,14 @@ def _continue_predict_result(*, source_is_neighbor, predicted_medcut):
     }
 
 
+def _ready_predict_result(*, source_is_neighbor, predicted_medcut):
+    return {
+        "status": "ready",
+        "predicted_medcut": predicted_medcut,
+        "source_is_neighbor": source_is_neighbor,
+    }
+
+
 def _run_skip_checks(
     *,
     iteration,
@@ -248,6 +256,86 @@ def _run_skip_checks(
         )
 
     return None
+
+
+def _run_probe_skip_flow(
+    *,
+    iteration,
+    source,
+    source_is_neighbor,
+    colors_first,
+    total_frames,
+    durations,
+    palette_limit,
+    width,
+    height,
+    target_mid,
+    stats_mgr,
+    executor,
+    workers,
+    gif_cfg,
+    resized_frames,
+    fast_size,
+    predicted_medcut,
+    state,
+    version,
+    debug_log,
+):
+    predicted_medcut, _, _, skip_decision = _probe_and_build_skip_decision(
+        iteration=iteration,
+        source=source,
+        source_is_neighbor=source_is_neighbor,
+        colors_first=colors_first,
+        total_frames=total_frames,
+        durations=durations,
+        palette_limit=palette_limit,
+        width=width,
+        height=height,
+        target_mid=target_mid,
+        stats_mgr=stats_mgr,
+        executor=executor,
+        workers=workers,
+        gif_cfg=gif_cfg,
+        resized_frames=resized_frames,
+        fast_size=fast_size,
+        predicted_medcut=predicted_medcut,
+        state=state,
+        version=version,
+        debug_log=debug_log,
+    )
+
+    if _apply_skip_decision_if_any(
+        iteration=iteration,
+        source_is_neighbor=source_is_neighbor,
+        skip_decision=skip_decision,
+        state=state,
+        version=version,
+        debug_log=debug_log,
+    ):
+        return _continue_predict_result(
+            source_is_neighbor=source_is_neighbor,
+            predicted_medcut=predicted_medcut,
+        )
+
+    if _try_formula_under_target_skip(
+        iteration=iteration,
+        source=source,
+        predicted_medcut=predicted_medcut,
+        fast_size=fast_size,
+        state=state,
+        target_mid=target_mid,
+        gif_cfg=gif_cfg,
+        version=version,
+    ) is not None:
+        return _continue_predict_result(
+            source_is_neighbor=source_is_neighbor,
+            predicted_medcut=predicted_medcut,
+        )
+
+    return _ready_predict_result(
+        source_is_neighbor=source_is_neighbor,
+        predicted_medcut=predicted_medcut,
+    )
 
 
 def _predict_and_skip_stage(
@@ -306,7 +394,7 @@ def _predict_and_skip_stage(
     if early_skip is not None:
         return early_skip
 
-    predicted_medcut, _, _, skip_decision = _probe_and_build_skip_decision(
+    return _run_probe_skip_flow(
         iteration=iteration,
         source=source,
         source_is_neighbor=source_is_neighbor,
@@ -328,36 +416,6 @@ def _predict_and_skip_stage(
         version=version,
         debug_log=debug_log,
     )
-
-    if _apply_skip_decision_if_any(
-        iteration=iteration,
-        source_is_neighbor=source_is_neighbor,
-        skip_decision=skip_decision,
-        state=state,
-        version=version,
-        debug_log=debug_log,
-    ):
-        return _continue_predict_result(
-            source_is_neighbor=source_is_neighbor,
-            predicted_medcut=predicted_medcut,
-        )
-
-    if _try_formula_under_target_skip(
-        iteration=iteration,
-        source=source,
-        predicted_medcut=predicted_medcut,
-        fast_size=fast_size,
-        state=state,
-        target_mid=target_mid,
-        gif_cfg=gif_cfg,
-        version=version,
-    ) is not None:
-        return _continue_predict_result(
-            source_is_neighbor=source_is_neighbor,
-            predicted_medcut=predicted_medcut,
-        )
-
-    return {"status": "ready", "predicted_medcut": predicted_medcut, "source_is_neighbor": source_is_neighbor}
 
 
 def _apply_prepare_adjustments(
@@ -410,14 +468,14 @@ def _apply_prepare_adjustments(
     )
     if resized_adj is not None:
         resized_frames = resized_adj
-        return resized_frames, fast_size, fast_bytes, predicted_medcut
+    return resized_frames, fast_size, fast_bytes, predicted_medcut
 
 
 def _apply_skip_decision_if_any(*, iteration, source_is_neighbor, skip_decision, state, version, debug_log):
     if not skip_decision.should_skip:
         return False
-        print(f"{version} | [gif.skip] Skip decision: build_skip_decision skip ({skip_decision.reason})")
-        debug_log(f"decision=skip | reason={skip_decision.reason}")
+    print(f"{version} | [gif.skip] Skip decision: build_skip_decision skip ({skip_decision.reason})")
+    debug_log(f"decision=skip | reason={skip_decision.reason}")
     state.low_scale = skip_decision.next_low_scale
     state.high_scale = skip_decision.next_high_scale
     if skip_decision.mark_formula_extra_skip_used:

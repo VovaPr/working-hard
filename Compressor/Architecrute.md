@@ -1,4 +1,4 @@
-# Compressor GIF Architecture (v2.0.30)
+# Compressor GIF Architecture (v2.0.31)
 
 This document describes the current compression architecture inside the Compressor folder.
 
@@ -203,6 +203,7 @@ webp_compress.py
   - Contains the actual prepare-stage helpers.
     - Runs FASTOCTREE trial and pre-MEDIANCUT decision flow.
     - Second-level helpers: `_handle_medcut_disabled_path`, `_probe_and_build_skip_decision`,
+      `_run_skip_checks`, `_run_probe_skip_flow`, `_continue_predict_result`, `_ready_predict_result`,
       `_apply_skip_decision_if_any`, `_apply_prepare_adjustments`.
 
 Supporting helpers used by prepare stage:
