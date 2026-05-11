@@ -2,6 +2,42 @@
 
 This document describes the current GIF compression architecture inside the Compressor folder.
 
+## Quick Structure
+
+```text
+Compressor.py
+  -> gif_compress.py
+    -> gif_balanced_steps.py
+      -> gif_prepare_medcut.py
+        -> gif_prepare_pipeline.py
+          -> gif_probe.py
+          -> gif_skip_logic.py
+          -> gif_sample_probe.py
+          -> gif_adjustments.py
+          -> compressor_gif_runtime.py
+          -> gif_stats.py
+      -> gif_complete_medcut.py
+        -> gif_complete_pipeline.py
+          -> gif_medcut_step.py
+          -> gif_balanced_temporal.py
+          -> gif_balanced_result.py
+          -> gif_complete_utils.py
+          -> gif_scale.py
+  -> webp_compress.py
+    -> webp_animated_pipeline.py
+      -> webp_loop_steps.py
+      -> webp_stats.py
+```
+
+### Short Reading Guide
+
+- Entry: `Compressor.py`, `gif_compress.py`, `webp_compress.py`
+- GIF orchestration: `gif_balanced_steps.py`
+- GIF prepare path: facade `gif_prepare_medcut.py` -> implementation `gif_prepare_pipeline.py`
+- GIF complete path: facade `gif_complete_medcut.py` -> implementation `gif_complete_pipeline.py`
+- WEBP animated path: facade `webp_compress.py` -> implementation `webp_animated_pipeline.py`
+- Shared primitives: `gif_ops.py`, `compressor_gif_runtime.py`, `gif_stats.py`
+
 ## High-Level Flow
 
 1. `gif_compress.py` starts GIF processing and controls the main iteration loop.
