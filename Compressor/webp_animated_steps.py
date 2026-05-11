@@ -302,7 +302,13 @@ def _try_resize_fallback(*, quality, effective_size, target_mid_bytes, frames, r
 
 def _resolve_next_quality(*, under_target_q, over_target_q, quality, effective_size, target_mid_bytes, local_version):
     correction = (target_mid_bytes / effective_size) ** 0.5
-    correction = max(0.88, min(1.12, correction))
+    raw_ratio = effective_size / target_mid_bytes
+    if raw_ratio > 1.20 or raw_ratio < 0.80:
+        # Far from target: allow large correction steps so we converge in fewer (expensive) encodes
+        correction = max(0.70, min(1.30, correction))
+    else:
+        # Near target: clamp tightly to avoid overshooting the bracket
+        correction = max(0.88, min(1.12, correction))
 
     if under_target_q is not None and over_target_q is not None and over_target_q - under_target_q > 1:
         next_quality = (under_target_q + over_target_q) // 2
