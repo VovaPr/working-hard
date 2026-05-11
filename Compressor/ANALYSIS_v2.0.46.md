@@ -2,6 +2,13 @@
 
 ## Executive Summary
 
+## Update (v2.0.47)
+
+- ✅ P1 stats I/O optimization implemented (batch write via defer/flush)
+- ✅ Replaced eager stats writes with deferred buffering across GIF pipeline
+- ✅ Added single flush at the end of `balanced_compress_gif()`
+- ✅ Reduced stats write amplification from many rewrites per GIF to one batch write
+
 **Overall Health: GOOD (7/10)**
 - ✅ Well-structured architecture with clear separation of concerns
 - ✅ Sophisticated prediction and skip logic to minimize iterations
@@ -411,7 +418,7 @@ Currently relies on exception handling, but edge cases not tested
 
 ## 6. Optimization Opportunities (Priority Order)
 
-### 🔴 **P1: Stats I/O Optimization** (HIGH IMPACT: -30-50 min/run)
+### ✅ **P1: Stats I/O Optimization** (COMPLETED in v2.0.47)
 ```
 Current: 30+ full file reads + writes per GIF
 Target:  1-2 writes per GIF (batch at end)
@@ -420,27 +427,28 @@ Risk:    Low (localized to stats manager)
 Payoff:  50x faster stats operations
 ```
 
-**Implementation**:
-1. Add `stats_batch` list to `CompressorStatsManager`
-2. Collect all entries during GIF processing
-3. Flush to disk once at end via `save_stats_batch()`
-4. Update `_load_stats()` to handle partial entries
+**Implemented**:
+1. Added `_stats_batch` to `CompressorStatsManager` in `gif_stats.py`
+2. Added `defer_stats(...)` for memory-only buffering (no disk I/O)
+3. Added `flush_stats()` for single batch write
+4. Replaced call sites from `save_stats(...)` to `defer_stats(...)`
+5. Added final `runtime["stats_mgr"].flush_stats()` in `gif_main_pipeline.py`
 
-**Code sketch**:
+**Final shape**:
 ```python
 class CompressorStatsManager:
     def __init__(self, ...):
-        self.stats_batch = []  # Buffer
+        self._stats_batch = []  # Buffer
     
-    def save_stats_defer(self, entry):
-        self.stats_batch.append(entry)
+    def defer_stats(self, ...):
+        self._stats_batch.append(entry)
     
     def flush_stats(self):
-        if self.stats_batch:
+        if self._stats_batch:
             data = self._artifact_mgr.load_stats()
-            data["gif_stats"].extend(self.stats_batch)
+            data["gif_stats"].extend(self._stats_batch)
             self._artifact_mgr.save_stats(data)
-            self.stats_batch = []
+            self._stats_batch = []
 ```
 
 ---
