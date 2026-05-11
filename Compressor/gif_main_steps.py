@@ -28,11 +28,11 @@ def _decode_gif_input(input_path, gif_cfg, version):
         colors_first = len(img.getcolors(maxcolors=256 * 256) or [])
         palette_limit = min(colors_first + gif_cfg.extra_palette, 256)
 
-        print(f"{version} | [gif.prepare] Starting file: {input_path}")
+        print(f"{version} | [gif.startup] | Starting file: {input_path}")
         init_size = os.path.getsize(input_path) / (1024 * 1024)
         print(
-            f"{version} | [gif.prepare] Initial Size: {init_size:.2f} MB | "
-            f"Frames={total_frames} | Palette={colors_first} | WxH={width}x{height}"
+            f"{version} | [gif.startup] | WxH={width}x{height} | Frames={total_frames} | "
+            f"Palette={colors_first} | Size={init_size:.2f} MB | Target={gif_cfg.target_min_mb:.2f}-{gif_cfg.target_max_mb:.2f} MB"
         )
 
         decode_start = time.time()

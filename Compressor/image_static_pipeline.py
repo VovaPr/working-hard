@@ -19,7 +19,7 @@ def _process_pngs(*, png_paths, version, target_size):
 
         try:
             png_size, jpg_size = _convert_png_to_jpg(png_path, jpg_path, version)
-            print(f"{version} | Converted size={jpg_size/1024:.2f} KB | Target={target_size/1024:.0f} KB")
+            print(f"{version} | [image.startup] | PNG -> JPG | size={jpg_size/1024:.2f} KB | Target={target_size/1024:.0f} KB")
             os.remove(png_path)
 
             if jpg_size <= target_size:
@@ -47,7 +47,7 @@ def _process_jpgs(*, jpg_paths, version, target_size):
             if ext == ".jfif":
                 converted_jpg_path, jfif_size, converted_size = _convert_jfif_to_jpg(jpg_path, version)
                 print(
-                    f"{version} | Converted size={converted_size/1024:.2f} KB | "
+                    f"{version} | [image.startup] | JFIF -> JPG | size={converted_size/1024:.2f} KB | "
                     f"Target={target_size/1024:.0f} KB"
                 )
                 os.remove(jpg_path)
