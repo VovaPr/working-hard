@@ -42,7 +42,7 @@ def _resolve_animation_startup(
     gif_cfg,
     local_version,
 ):
-    quality, source, direct_final_from_stats, known_result_size_mb = resolve_startup_quality(
+    quality, source, direct_final_from_stats, known_result_size_mb, startup_pre_resize = resolve_startup_quality(
         stats_mgr_webp,
         width,
         height,
@@ -62,6 +62,7 @@ def _resolve_animation_startup(
     )
     runtime["quality"] = quality
     runtime["direct_final_from_stats"] = direct_final_from_stats
+    runtime["startup_pre_resize"] = startup_pre_resize
     return runtime
 
 
@@ -416,6 +417,7 @@ def _build_animation_state(*, startup, frames):
         "frames": frames,
         "quality": startup["quality"],
         "direct_final_from_stats": startup["direct_final_from_stats"],
+        "startup_pre_resize": startup.get("startup_pre_resize"),
         "resize_count": 0,
         "webp_method": startup["webp_method"],
         "webp_method_direct_fast": startup["webp_method_direct_fast"],
@@ -426,6 +428,22 @@ def _build_animation_state(*, startup, frames):
         "observations": [],
         "best_effort": {"buf": None, "size": None, "quality": None, "method": None},
     }
+
+
+def _apply_startup_pre_resize_if_needed(*, state, local_version):
+    target = state.get("startup_pre_resize")
+    if not target or not state.get("frames"):
+        return
+
+    new_w, new_h = target
+    old_w, old_h = state["frames"][0].width, state["frames"][0].height
+    if old_w == new_w and old_h == new_h:
+        state["resize_count"] = max(1, state.get("resize_count", 0))
+        return
+
+    state["frames"] = [fr.resize((new_w, new_h), Image.LANCZOS) for fr in state["frames"]]
+    state["resize_count"] = max(1, state.get("resize_count", 0))
+    print(f"{local_version} | [webp.startup] | replay-resize {old_w}x{old_h} -> {new_w}x{new_h}")
 
 
 def _check_early_exits(
@@ -601,6 +619,8 @@ def _handle_iteration_outcome(
     step_encode_elapsed = step_result["step_encode_elapsed"]
     bracket_known = step_result["bracket_known"]
     state["observations"].append((state["quality"], effective_size))
+    final_width = state["frames"][0].width if state.get("frames") else width
+    final_height = state["frames"][0].height if state.get("frames") else height
 
     if _is_in_target_range(
         effective_size=effective_size,
@@ -624,6 +644,8 @@ def _handle_iteration_outcome(
             encode_elapsed=step_encode_elapsed,
             target_min_bytes=target_min_bytes,
             target_max_bytes=target_max_bytes,
+            final_width=final_width,
+            final_height=final_height,
         )
         return "done"
 

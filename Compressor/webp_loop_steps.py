@@ -26,11 +26,13 @@ def resolve_startup_quality(
         )
 
     known_result_size_mb = None
+    startup_pre_resize = None
     if startup_plan is not None:
         quality = startup_plan["quality"]
         source = startup_plan["source"]
         direct_final_from_stats = startup_plan["direct_final"]
         known_result_size_mb = startup_plan.get("result_size_mb")
+        startup_pre_resize = startup_plan.get("pre_resize")
     elif stats_mgr_webp and width and height and frame_count:
         ratio = (target_mid_bytes / init_size) ** 0.5 if init_size > 0 else 1.0
         quality = max(60, min(95, int(95 * ratio * 1.02)))
@@ -45,7 +47,7 @@ def resolve_startup_quality(
         source = f"default (stats unavailable, ratio-seeded q={quality})"
         direct_final_from_stats = False
 
-    return quality, source, direct_final_from_stats, known_result_size_mb
+    return quality, source, direct_final_from_stats, known_result_size_mb, startup_pre_resize
 
 
 def resolve_runtime_settings(gif_cfg, frame_count, local_version, direct_final_from_stats, known_result_size_mb):

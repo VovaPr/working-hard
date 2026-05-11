@@ -50,7 +50,20 @@ class AnimatedWebPStatsManager:
                     merged[key] = entry.copy()
         return sorted(merged.values(), key=lambda e: e.get("timestamp", 0))
 
-    def save_step(self, width, height, frames, init_size_mb, quality, method, result_size_mb, encode_sec):
+    def save_step(
+        self,
+        width,
+        height,
+        frames,
+        init_size_mb,
+        quality,
+        method,
+        result_size_mb,
+        encode_sec,
+        resize_count=0,
+        final_width=None,
+        final_height=None,
+    ):
         init_size_mb = round(init_size_mb, 2)
         result_size_mb = round(result_size_mb, 2)
         encode_sec = round(encode_sec, 2)
@@ -73,6 +86,9 @@ class AnimatedWebPStatsManager:
                         "result_size_mb": result_size_mb,
                         "encode_sec": encode_sec,
                         "timestamp": now_ts,
+                        "resize_count": int(resize_count or 0),
+                        "final_width": final_width,
+                        "final_height": final_height,
                     })
                 merged = True
                 break
@@ -90,6 +106,9 @@ class AnimatedWebPStatsManager:
                     "encode_sec": encode_sec,
                     "timestamp": now_ts,
                     "count": 1,
+                    "resize_count": int(resize_count or 0),
+                    "final_width": final_width,
+                    "final_height": final_height,
                 }
             )
 
@@ -165,6 +184,9 @@ class AnimatedWebPStatsManager:
                     "timestamp": entry.get("timestamp", 0),
                     "direct_final": direct_final,
                     "exact_profile": exact_profile,
+                    "resize_count": int(entry.get("resize_count", 0) or 0),
+                    "final_width": entry.get("final_width"),
+                    "final_height": entry.get("final_height"),
                 }
             )
 
@@ -181,6 +203,13 @@ class AnimatedWebPStatsManager:
             )
         )
         best = candidates[0]
+        pre_resize = None
+        if best.get("resize_count", 0) > 0:
+            fw = best.get("final_width")
+            fh = best.get("final_height")
+            if isinstance(fw, int) and isinstance(fh, int) and fw > 0 and fh > 0 and fw <= width and fh <= height:
+                pre_resize = (fw, fh)
+
         source_prefix = "webp exact stats" if best["exact_profile"] else "webp stats"
         source_suffix = "direct-final" if best["direct_final"] else "probe-guided"
         return {
@@ -188,7 +217,8 @@ class AnimatedWebPStatsManager:
             "method": best["method"],
             "result_size_mb": best.get("result_size_mb"),
             "count": best.get("count", 1),
-            "direct_final": best["direct_final"],
+            "direct_final": best["direct_final"] and (best.get("resize_count", 0) == 0 or pre_resize is not None),
+            "pre_resize": pre_resize,
             "source": f"{source_prefix} ({source_suffix}, records={self.stats_count()}, count={best.get('count', 1)})",
         }
 

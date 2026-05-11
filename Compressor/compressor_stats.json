@@ -2797,12 +2797,15 @@
       "height": 720,
       "frames": 390,
       "init_size_mb": 25.79,
-      "quality": 49,
+      "quality": 46,
       "method": 2,
-      "result_size_mb": 13.63,
-      "encode_sec": 38.07,
-      "timestamp": 1778517957.785574,
-      "count": 1
+      "result_size_mb": 13.51,
+      "encode_sec": 81.93,
+      "timestamp": 1778519736.8646579,
+      "count": 1,
+      "resize_count": 1,
+      "final_width": 1097,
+      "final_height": 617
     }
   ]
 }

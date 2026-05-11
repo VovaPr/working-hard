@@ -12,6 +12,9 @@ def _save_step_stats(
     method,
     result_size,
     encode_elapsed,
+    resize_count=0,
+    final_width=None,
+    final_height=None,
 ):
     if stats_mgr_webp and width and height and frame_count:
         stats_mgr_webp.save_step(
@@ -23,6 +26,9 @@ def _save_step_stats(
             method,
             result_size / (1024 * 1024),
             encode_elapsed,
+            resize_count,
+            final_width,
+            final_height,
         )
 
 
@@ -47,6 +53,8 @@ def persist_success_result(
     height,
     frame_count,
     encode_elapsed,
+    final_width=None,
+    final_height=None,
 ):
     _save_step_stats(
         stats_mgr_webp=stats_mgr_webp,
@@ -58,6 +66,9 @@ def persist_success_result(
         method=method,
         result_size=result_size,
         encode_elapsed=encode_elapsed,
+        resize_count=resize_count,
+        final_width=final_width,
+        final_height=final_height,
     )
 
     _write_buffer(path, result_buf)
@@ -90,6 +101,8 @@ def persist_success(
     encode_elapsed,
     target_min_bytes,
     target_max_bytes,
+    final_width=None,
+    final_height=None,
 ):
     print(
         f"{local_version} | [webp.success] | size={result_size/1024:.2f} KB "
@@ -110,6 +123,8 @@ def persist_success(
         height=height,
         frame_count=frame_count,
         encode_elapsed=encode_elapsed,
+        final_width=final_width,
+        final_height=final_height,
     )
 
 
