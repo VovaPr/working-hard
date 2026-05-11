@@ -1,5 +1,7 @@
 """Skip decision logic for iteration optimization."""
 
+from scale_strategy import ScaleStrategy
+
 
 def _try_hard_skip(
     *,
@@ -41,12 +43,8 @@ def _try_hard_skip(
         suggested_scale = state.scale * (target_mid / fast_size) ** 0.5 if fast_size > 0 else state.scale
         suggested_scale *= 0.92
 
-    max_skip_step = state.scale * 0.55
-    if abs(suggested_scale - state.scale) > max_skip_step:
-        direction = 1 if suggested_scale > state.scale else -1
-        suggested_scale = state.scale + direction * max_skip_step
-    if not (state.low_scale < suggested_scale < state.high_scale):
-        suggested_scale = (state.low_scale + state.high_scale) / 2
+    suggested_scale = ScaleStrategy.apply_step_cap(state.scale, suggested_scale, max_step_ratio=0.55)
+    suggested_scale = ScaleStrategy.clamp_to_bracket(suggested_scale, state.low_scale, state.high_scale)
 
     print(
         f"{version} | [gif.skip] Early hard-skip on iter 1: FASTOCTREE={fast_size:.2f} MB "
@@ -81,11 +79,8 @@ def _try_formula_under_target_skip(
     suggested_scale = state.scale * (target_mid / max(predicted_medcut, 0.1)) ** 0.5
 
     max_up_step = state.scale * min(0.30, gif_cfg.max_scale_step_ratio * 2.0)
-    if abs(suggested_scale - state.scale) > max_up_step:
-        direction = 1 if suggested_scale > state.scale else -1
-        suggested_scale = state.scale + direction * max_up_step
-    if not (state.low_scale < suggested_scale < state.high_scale):
-        suggested_scale = (state.low_scale + state.high_scale) / 2
+    suggested_scale = ScaleStrategy.apply_step_cap(state.scale, suggested_scale, max_step_ratio=(max_up_step / state.scale if state.scale > 0 else 0.30))
+    suggested_scale = ScaleStrategy.clamp_to_bracket(suggested_scale, state.low_scale, state.high_scale)
 
     print(f"{version} | [gif.skip] Skip decision: formula-under-target skip")
     print(

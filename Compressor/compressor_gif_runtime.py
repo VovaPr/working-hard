@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from scale_strategy import ScaleStrategy
 
 
 @dataclass
@@ -36,20 +37,6 @@ def is_in_target_range(size_mb, gif_cfg):
 
 def is_in_preferred_range(size_mb, gif_cfg):
     return gif_cfg.preferred_min_mb <= size_mb <= gif_cfg.preferred_max_mb
-
-
-def _apply_step_cap(current_scale, suggested_scale, max_step_ratio):
-    max_step = current_scale * max_step_ratio
-    if abs(suggested_scale - current_scale) <= max_step:
-        return suggested_scale
-    direction = 1 if suggested_scale > current_scale else -1
-    return current_scale + direction * max_step
-
-
-def _clamp_to_bracket(suggested_scale, low_scale, high_scale):
-    if low_scale < suggested_scale < high_scale:
-        return suggested_scale
-    return (low_scale + high_scale) / 2
 
 
 def predict_medcut_size(
@@ -152,8 +139,8 @@ def build_skip_decision(
         next_high_scale = current_scale
 
     suggested_scale = current_scale * (target_mid / predicted_medcut) ** 0.5 if predicted_medcut > 0 else current_scale
-    suggested_scale = _apply_step_cap(current_scale, suggested_scale, max_step_ratio=0.45)
-    suggested_scale = _clamp_to_bracket(suggested_scale, next_low_scale, next_high_scale)
+    suggested_scale = ScaleStrategy.apply_step_cap(current_scale, suggested_scale, max_step_ratio=0.45)
+    suggested_scale = ScaleStrategy.clamp_to_bracket(suggested_scale, next_low_scale, next_high_scale)
 
     reason = "predicted too large" if (can_skip_first_med or can_skip_probe_overflow or can_skip_formula_extra) else "predicted too small"
     return SkipDecision(

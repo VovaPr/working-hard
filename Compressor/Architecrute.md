@@ -1,4 +1,4 @@
-# Compressor GIF Architecture (v2.0.42)
+# Compressor GIF Architecture (v2.0.43)
 
 This document describes the current compression architecture inside the Compressor folder.
 
@@ -130,6 +130,7 @@ Compressor GIF Pipeline
 |
 +-- Shared Core
     +-- artifact_manager.py (centralized artifact I/O, runtime file management)
+    +-- scale_strategy.py (unified scale calculation strategy and constraints)
     +-- gif_ops.py (low-level frame and encoding primitives)
     +-- webp_stats.py (animated WEBP stats)
   +-- image_static_steps.py (JPEG/WEBP static image primitives)
@@ -255,6 +256,14 @@ Supporting helpers used by completion stage:
 
 ### Shared Runtime and Primitives
 
+- `artifact_manager.py`
+  - Centralized artifact manager for runtime files (stats JSON, temp directories).
+  - Provides abstract interface for I/O operations (load/save stats).
+  - Singleton pattern for global access.
+- `scale_strategy.py`
+  - Unified scale calculation: geometric mean formula, step capping, bracket clamping.
+  - Used by skip logic, complete stage, and FAST-only search.
+  - Encapsulates all scale update logic for consistency and reuse.
 - `compressor_gif_runtime.py`
   - Runtime state and decision helpers.
   - Prediction and corridor/target checks.
