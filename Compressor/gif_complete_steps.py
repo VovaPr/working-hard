@@ -95,6 +95,13 @@ def _handle_overhead_guard(
     medcut_overhead_mb = med_size - med_input["fast_size"]
     print(f"{version} | [gif.compare] Delta vs FASTOCTREE = {medcut_overhead_mb:+.2f} MB")
 
+    medcut_is_success = is_in_target_range(med_size, gif_cfg) or (
+        iteration >= 1 and is_in_preferred_range(med_size, gif_cfg)
+    )
+    if medcut_is_success:
+        state.medcut_overhead_hits = 0
+        return {"status": "pass"}
+
     if medcut_overhead_mb >= gif_cfg.guard.medcut_overhead_guard_margin_mb:
         state.medcut_overhead_hits += 1
         print(
