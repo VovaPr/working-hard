@@ -1,6 +1,7 @@
 import json
 import os
 import time
+from artifact_manager import get_artifact_manager
 
 
 class CompressorStatsManager:
@@ -10,20 +11,17 @@ class CompressorStatsManager:
         self.stats_file = stats_file
         self.version = version
         self.stats = []
+        self._artifact_mgr = get_artifact_manager(os.path.dirname(stats_file))
         self._load_stats()
 
     def _load_stats(self):
-        if os.path.exists(self.stats_file):
-            try:
-                with open(self.stats_file, "r", encoding="utf-8-sig") as f:
-                    data = json.load(f)
-                    if isinstance(data, dict):
-                        self.stats = data.get("gif_stats", [])
-                    else:
-                        self.stats = data
-            except Exception:
-                self.stats = []
-        else:
+        try:
+            data = self._artifact_mgr.load_stats()
+            if isinstance(data, dict):
+                self.stats = data.get("gif_stats", [])
+            else:
+                self.stats = data if isinstance(data, list) else []
+        except Exception:
             self.stats = []
 
     def save_stats(self, palette, width, height, frames, fast_size, med_size, scale):
@@ -39,18 +37,11 @@ class CompressorStatsManager:
         }
         self.stats.append(entry)
         try:
-            data = {}
-            if os.path.exists(self.stats_file):
-                with open(self.stats_file, "r", encoding="utf-8-sig") as f:
-                    existing = json.load(f)
-                    if isinstance(existing, dict):
-                        data = existing
-                    else:
-                        data = {"gif_stats": existing}
-
+            data = self._artifact_mgr.load_stats()
+            if not isinstance(data, dict):
+                data = {"gif_stats": data if isinstance(data, list) else []}
             data["gif_stats"] = self.stats
-            with open(self.stats_file, "w", encoding="utf-8") as f:
-                json.dump(data, f, indent=2)
+            self._artifact_mgr.save_stats(data)
         except Exception as e:
             print(f"{self.version} | Warning: failed to save stats: {e}")
 

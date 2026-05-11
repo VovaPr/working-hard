@@ -3,6 +3,7 @@
 import json
 import os
 import time
+from artifact_manager import get_artifact_manager
 
 
 class AnimatedWebPStatsManager:
@@ -12,24 +13,21 @@ class AnimatedWebPStatsManager:
         self.stats_file = stats_file
         self.version = version
         self.webp_stats = []
+        self._artifact_mgr = get_artifact_manager(os.path.dirname(stats_file))
         self._load_webp_stats()
 
     def stats_count(self):
         return len(self.webp_stats)
 
     def _load_webp_stats(self):
-        if os.path.exists(self.stats_file):
-            try:
-                with open(self.stats_file, "r", encoding="utf-8-sig") as f:
-                    data = json.load(f)
-                    if isinstance(data, dict):
-                        self.webp_stats = data.get("webp_animated_stats", [])
-                    else:
-                        self.webp_stats = []
-                    self.webp_stats = self._merge_duplicate_webp_stats(self.webp_stats)
-            except Exception:
+        try:
+            data = self._artifact_mgr.load_stats()
+            if isinstance(data, dict):
+                self.webp_stats = data.get("webp_animated_stats", [])
+            else:
                 self.webp_stats = []
-        else:
+            self.webp_stats = self._merge_duplicate_webp_stats(self.webp_stats)
+        except Exception:
             self.webp_stats = []
 
     def _merge_duplicate_webp_stats(self, entries):
@@ -117,17 +115,13 @@ class AnimatedWebPStatsManager:
 
     def _persist_webp_stats(self):
         try:
-            data = {}
-            if os.path.exists(self.stats_file):
-                with open(self.stats_file, "r", encoding="utf-8-sig") as f:
-                    content = json.load(f)
-                    if isinstance(content, list):
-                        data = {"gif_stats": content}
-                    else:
-                        data = content
+            data = self._artifact_mgr.load_stats()
+            if isinstance(data, list):
+                data = {"gif_stats": data}
+            elif not isinstance(data, dict):
+                data = {}
             data["webp_animated_stats"] = self.webp_stats
-            with open(self.stats_file, "w", encoding="utf-8") as f:
-                json.dump(data, f, indent=2)
+            self._artifact_mgr.save_stats(data)
         except Exception as e:
             print(f"{self.version} | Warning: failed to save webp_animated_stats: {e}")
 

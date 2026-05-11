@@ -1,4 +1,4 @@
-# Compressor GIF Architecture (v2.0.41)
+# Compressor GIF Architecture (v2.0.42)
 
 This document describes the current compression architecture inside the Compressor folder.
 
@@ -6,6 +6,7 @@ This document describes the current compression architecture inside the Compress
 
 ```text
 Compressor.py
+  -> artifact_manager.py
   -> image_compress.py
     -> image_static_pipeline.py
       -> image_static_steps.py
@@ -128,6 +129,7 @@ Compressor GIF Pipeline
 |       +-- delegates persistence to webp_persist_steps.py
 |
 +-- Shared Core
+    +-- artifact_manager.py (centralized artifact I/O, runtime file management)
     +-- gif_ops.py (low-level frame and encoding primitives)
     +-- webp_stats.py (animated WEBP stats)
   +-- image_static_steps.py (JPEG/WEBP static image primitives)
@@ -176,6 +178,10 @@ webp_compress.py
 
 ### Entry and Orchestration
 
+- `artifact_manager.py`
+  - Centralized artifact manager for runtime files (stats JSON, temp directories).
+  - Provides abstract interface for I/O operations (load/save stats).
+  - Singleton pattern for global access.
 - `image_compress.py`
   - Facade for static image flow.
   - Delegates to `image_static_pipeline.py`.

@@ -7,7 +7,7 @@ What this compressor does:
 """
 
 # Single source of truth for the application version.
-APP_VERSION = "2.0.41"
+APP_VERSION = "2.0.42"
 
 # Standard library imports
 import os, sys, time, subprocess
@@ -17,6 +17,7 @@ from image_compress import process_images as static_process_images
 from scanner import scan_media_candidates as scan_media_candidates_impl
 from webp_compress import compress_animated_webp_until_under_target as webp_compress_animated
 from gif_compress import process_gifs as gif_process_gifs
+from artifact_manager import get_artifact_manager
 
 start_time = time.time()
 
@@ -124,10 +125,13 @@ class AppConfig:
 
 CONFIG = AppConfig()
 
+# Initialize artifact manager
+_artifact_mgr = get_artifact_manager(os.path.dirname(__file__))
+
 # Backward-compatible aliases
 ROOT_FOLDER_PATH = CONFIG.root_folder_path
 VERSION = CONFIG.version
-STATS_FILE = CONFIG.stats_file
+STATS_FILE = _artifact_mgr.get_stats_path()
 TARGET_SIZE = CONFIG.jpg.target_size
 QUALITY_MAX = CONFIG.jpg.quality_max
 
