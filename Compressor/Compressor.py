@@ -60,7 +60,7 @@ class GIFConfig:
     # For dense palettes, neighbor-based predictions can under-estimate MEDIANCUT output.
     # Use sample probe in these high-risk cases to skip costly bad first MEDIANCUT runs.
     sample_probe_neighbor_min_palette: int = 220
-    sample_probe_neighbor_min_frames: int = 120
+    sample_probe_neighbor_min_frames: int = 100
     fast_direct_accept_enabled: bool = True
     fast_direct_min_frames: int = 120
     probe_skip_overflow_margin: float = 1.08
