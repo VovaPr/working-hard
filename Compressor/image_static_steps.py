@@ -1,8 +1,19 @@
 import io
 import os
 import time
+from contextlib import contextmanager
 
-from PIL import Image, ImageOps, UnidentifiedImageError
+from PIL import Image, ImageFile, ImageOps, UnidentifiedImageError
+
+
+@contextmanager
+def _allow_truncated_images():
+    previous = ImageFile.LOAD_TRUNCATED_IMAGES
+    ImageFile.LOAD_TRUNCATED_IMAGES = True
+    try:
+        yield
+    finally:
+        ImageFile.LOAD_TRUNCATED_IMAGES = previous
 
 
 def _build_jpg_path_from_png(png_path):
@@ -13,7 +24,7 @@ def _build_jpg_path_from_png(png_path):
 
 
 def _convert_png_to_jpg(png_path, jpg_path, version):
-    with Image.open(png_path) as img:
+    with _allow_truncated_images(), Image.open(png_path) as img:
         png_size = os.path.getsize(png_path)
         print(f"{version} | Initial PNG: {png_path}")
         print(f"{version} | WxH={img.width}x{img.height} | Size={png_size/1024:.2f} KB")

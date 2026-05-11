@@ -2809,6 +2809,16 @@
       "med_size": 14.274892807006836,
       "scale": 0.7107306277392522,
       "timestamp": 1778529263.6579356
+    },
+    {
+      "palette": 256,
+      "width": 270,
+      "height": 480,
+      "frames": 587,
+      "fast_size": 10.490249633789062,
+      "med_size": 14.638097763061523,
+      "scale": 0.5243409552547411,
+      "timestamp": 1778531391.5512416
     }
   ],
   "_schema_version": 1,
@@ -2834,8 +2844,8 @@
       "quality": 46,
       "method": 2,
       "result_size_mb": 13.51,
-      "encode_sec": 61.98,
-      "timestamp": 1778524600.9292362,
+      "encode_sec": 76.52,
+      "timestamp": 1778530372.411606,
       "count": 1,
       "resize_count": 1,
       "final_width": 1097,
