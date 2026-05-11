@@ -1,20 +1,22 @@
-# Codebase Analysis & Bottleneck Report — v2.0.46
+# Codebase Analysis & Bottleneck Report — v2.0.48 (Refreshed)
 
 ## Executive Summary
 
-## Update (v2.0.47)
+## Completed Work (Removed From Active Plan)
 
 - ✅ P1 stats I/O optimization implemented (batch write via defer/flush)
 - ✅ Replaced eager stats writes with deferred buffering across GIF pipeline
 - ✅ Added single flush at the end of `balanced_compress_gif()`
 - ✅ Reduced stats write amplification from many rewrites per GIF to one batch write
+- ✅ P2 GIFConfig reorganization implemented (nested grouped config sections)
+- ✅ Legacy dynamic alias layer removed; all call sites use explicit nested paths
 
 **Overall Health: GOOD (7/10)**
 - ✅ Well-structured architecture with clear separation of concerns
 - ✅ Sophisticated prediction and skip logic to minimize iterations
 - ✅ Proper abstraction layers (artifact manager, scale strategy)
 - ⚠️ Several performance bottlenecks and optimization opportunities identified
-- ⚠️ Config bloat and parameter complexity
+- ⚠️ Remaining work is mostly WEBP tuning + edge-case tests
 
 ---
 
@@ -50,47 +52,12 @@ gif_compress.py → gif_main_pipeline → prepare/complete → prepare_steps/com
 
 ### 1.2 Issues
 
-#### Configuration Explosion ⚠️
-**Problem**: `GIFConfig` has **62 parameters**
-```python
-@dataclass(frozen=True)
-class GIFConfig:
-    # 62 fields total:
-    # - 13 time-related (max_iterations, decay_half_life, etc.)
-    # - 15 threshold parameters
-    # - 11 ratio/safety factors
-    # - 23 other specialized flags
-```
+#### Configuration Reorganization ✅
+**Status**: Completed in v2.0.48
 
-**Impact**:
-- Hard to maintain and reason about
-- Difficult to test different configurations
-- Tuning one parameter affects multiple paths unpredictably
-- No clear grouping (e.g., "prepare stage config", "WEBP config", "timeout config")
-
-**Recommendation**:
-```python
-# Group by concern instead:
-@dataclass
-class PrepareStageConfig:
-    skip_probe_enabled: bool
-    sample_probe_enabled: bool
-    ...
-
-@dataclass
-class CompleteStageConfig:
-    medcut_overhead_guard_enabled: bool
-    temporal_preserve_enabled: bool
-    ...
-
-@dataclass
-class GIFConfig:
-    target_min_mb: float
-    target_max_mb: float
-    prepare: PrepareStageConfig = field(default_factory=PrepareStageConfig)
-    complete: CompleteStageConfig = field(default_factory=CompleteStageConfig)
-    webp: WebPConfig = field(default_factory=WebPConfig)
-```
+`GIFConfig` is now grouped into explicit nested sections (`targets`, `runtime`, `prediction`,
+`temporal`, `sample_probe`, `skip`, `guard`, `webp`) and call sites were migrated to explicit
+paths.
 
 #### Deeply Nested Function Calls ⚠️
 **Problem**: Some stack traces are 8+ levels deep
@@ -110,45 +77,11 @@ gif_compress → gif_main_pipeline → gif_main_steps → gif_balanced_steps
 
 ### 2.1 I/O Bottlenecks
 
-#### Stats File Load/Save (FREQUENT) 🔴
-**Location**: `artifact_manager.py` / `gif_stats.py`
-```python
-def save_stats(self, palette, width, height, frames, fast_size, med_size, scale):
-    self.stats.append(entry)
-    data = self._artifact_mgr.load_stats()  # ← RELOAD ENTIRE FILE
-    data["gif_stats"] = self.stats
-    self._artifact_mgr.save_stats(data)     # ← REWRITE ALL
-```
+#### Stats File I/O (Batch Write) ✅
+**Status**: Completed in v2.0.47
 
-**Problem**:
-- **Every stats save does**: `load_file + modify + save_file` (3 I/O ops)
-- With 10+ iterations per GIF, this means **30+ full file rewrites**
-- JSON parse/serialize overhead for entire file each time
-- On slow storage (network drive), can add **minutes** to runtime
-
-**Current File Size**: Unknown, but no rotation at 5 MB (TODO)
-- Could be **1,000+ entries** (100+ GIFs × 10 iterations)
-- JSON parsing time: O(n) where n = total entries
-
-**Impact**: 🔴 **HIGH** — Each GIF costs ~30-50 I/O cycles
-
-**Fix Options** (Priority order):
-1. **In-memory batch write** (5 min): Defer all writes until GIF done
-   ```python
-   def save_stats_batch(self, entries):
-       data = self._artifact_mgr.load_stats()
-       data["gif_stats"].extend(entries)
-       self._artifact_mgr.save_stats(data)  # Single write
-   ```
-
-2. **Append-only log** (10 min): Write only new entries, load on startup
-   ```python
-   def append_stats_entry(self, entry):
-       with open(self._stats_path + ".log", "a") as f:
-           f.write(json.dumps(entry) + "\n")  # Atomic append, no rewrite
-   ```
-
-3. **Implement stats rotation** (15 min): Archive when > 5 MB
+Stats writes are deferred and flushed in batch once per GIF flow. Previous eager rewrite pattern
+was removed from the active risk list.
 
 ---
 
@@ -363,7 +296,7 @@ Currently relies on exception handling, but edge cases not tested
 |--------|---------|---------|-----------|
 | `gif_probe.py` | FASTOCTREE | Good | EXPENSIVE (5-30s) |
 | `gif_medcut_step.py` | MEDIANCUT | Excellent | Cached well |
-| `artifact_manager.py` | I/O | Good | **I/O HEAVY** 🔴 |
+| `artifact_manager.py` | I/O | Good | Stable for current scale |
 | `scale_strategy.py` | Calc | Excellent | None |
 | `compressor_gif_runtime.py` | Predict | Good | Stale stats risk |
 
@@ -400,10 +333,9 @@ Currently relies on exception handling, but edge cases not tested
 
 ### 5.2 Medium-Risk Areas
 
-#### Stale Stats Predictions 🟡
-**Risk**: Old stats + new file type = bad quality prediction
-**Mitigation**: Reset weights annually, or use measured data priority
-**Effort**: 30 min
+#### Stale Stats Predictions ⚪
+**Status**: Accepted as-is by decision (May 2026)
+**Note**: No active roadmap work planned here right now.
 
 #### Edge Case: Very Large Iteration Count 🟡
 **Risk**: Rare case where search space huge and scale converges slowly
@@ -414,77 +346,6 @@ Currently relies on exception handling, but edge cases not tested
 
 ## 6. Optimization Opportunities (Priority Order)
 
-### ✅ **P1: Stats I/O Optimization** (COMPLETED in v2.0.47)
-```
-Current: 30+ full file reads + writes per GIF
-Target:  1-2 writes per GIF (batch at end)
-Effort:  15-30 minutes
-Risk:    Low (localized to stats manager)
-Payoff:  50x faster stats operations
-```
-
-**Implemented**:
-1. Added `_stats_batch` to `CompressorStatsManager` in `gif_stats.py`
-2. Added `defer_stats(...)` for memory-only buffering (no disk I/O)
-3. Added `flush_stats()` for single batch write
-4. Replaced call sites from `save_stats(...)` to `defer_stats(...)`
-5. Added final `runtime["stats_mgr"].flush_stats()` in `gif_main_pipeline.py`
-
-**Final shape**:
-```python
-class CompressorStatsManager:
-    def __init__(self, ...):
-        self._stats_batch = []  # Buffer
-    
-    def defer_stats(self, ...):
-        self._stats_batch.append(entry)
-    
-    def flush_stats(self):
-        if self._stats_batch:
-            data = self._artifact_mgr.load_stats()
-            data["gif_stats"].extend(self._stats_batch)
-            self._artifact_mgr.save_stats(data)
-            self._stats_batch = []
-```
-
----
-
-### 🟡 **P2: Config Reorganization** (MEDIUM IMPACT: +maintainability, -bugs)
-```
-Current: Flat 62-parameter config
-Target:  Nested by responsibility (5-7 nested configs)
-Effort:  45-60 minutes
-Risk:    Medium (wide code change)
-Payoff:  Easier tuning, fewer parameter interactions
-```
-
-**Suggested Structure**:
-```python
-@dataclass
-class SkipLogicConfig:
-    hard_skip_enabled: bool = True
-    probe_skip_enabled: bool = True
-    formula_skip_enabled: bool = True
-    hard_skip_ratio: float = 1.30
-
-@dataclass
-class PredictionConfig:
-    stats_source_bias: float = 1.08
-    neighbor_source_bias: float = 1.04
-    neighbor_safety: float = 0.95
-    stats_min_age_decay: float = 86400.0
-
-@dataclass
-class GIFConfig:
-    target_min_mb: float = 13.5
-    target_max_mb: float = 14.99
-    skip: SkipLogicConfig = field(default_factory=SkipLogicConfig)
-    predict: PredictionConfig = field(default_factory=PredictionConfig)
-    # ... etc
-```
-
----
-
 ### 🟡 **P3: Early Resize for WEBP** (LOW-MEDIUM IMPACT: -20-30 sec on new files)
 ```
 Current: Resize triggers when Q < 45 (late)
@@ -493,22 +354,6 @@ Effort:  30-45 minutes
 Risk:    Low (new config flag guards behavior)
 Payoff:  1-2 iterations saved on new large files
 ```
-
----
-
-### ⚪ **P4: Stats Rotation Checkpoint** (DEFERRED by decision)
-```
-Current: TODO note in code, not implemented
-Target:  Archive stats when > 5 MB
-Effort:  20-30 minutes
-Risk:    Low (non-critical feature)
-Payoff:  Prevents huge stats file, keeps queries O(n) bounded
-```
-
-**Decision (May 2026)**:
-- Keep a single stats JSON file.
-- Do not implement rotation until measured file size reaches 5 MB.
-- Git history is accepted as sufficient backup/audit mechanism before that threshold.
 
 ---
 
@@ -555,8 +400,8 @@ def test_stats_batch_flush():
 |--------|--------|--------|
 | **Architecture** | 8/10 | ✅ Well-designed, clear layers |
 | **Abstraction** | 8/10 | ✅ Good use of singleton/strategy patterns |
-| **Performance** | 5/10 | ⚠️ **I/O is bottleneck**, memory acceptable |
-| **Config Maintenance** | 4/10 | 🔴 **62 parameters too many**, needs grouping |
+| **Performance** | 7/10 | ✅ Stats I/O bottleneck addressed; WEBP tuning remains |
+| **Config Maintenance** | 7/10 | ✅ Grouped nested config implemented |
 | **Documentation** | 6/10 | 🟡 Good logging, sparse docstrings |
 | **Error Handling** | 7/10 | ✅ Graceful fallbacks, missing edge cases |
 | **Testing** | 5/10 | 🟡 Syntax checks good, scenario tests missing |
@@ -566,22 +411,11 @@ def test_stats_batch_flush():
 
 ---
 
-## 9. Recommended Action Plan (Next 2-3 Weeks)
+## 9. Recommended Action Plan (Current)
 
-### Week 1: P1 (Stats I/O Optimization)
-- [ ] Implement batch write optimization
-- [ ] Measure improvement (target: -40 min/10-GIF batch)
-- [ ] Commit: v2.0.47
-
-### Week 2: P2 (Config Reorganization) 
-- [ ] Refactor 62 params into nested structure
-- [ ] Validate no logic changes (all existing behavior preserved)
-- [ ] Update tests to match new structure
-- [ ] Commit: v2.0.48
-
-### Week 2-3: P4 (Stats Rotation)
-- [x] Deferred by policy decision (single file until 5 MB)
-- [x] Revisit only when measured threshold is reached
+### Next: P3 (WEBP Early Resize)
+- [ ] Add guarded early-resize trigger for severe overflow new files
+- [ ] Validate quality/size outcomes on 2-3 representative animated WEBP files
 
 ### Ongoing: P5 (Testing & Validation)
 - [ ] Add missing test scenarios
@@ -592,8 +426,8 @@ def test_stats_batch_flush():
 
 ## 10. Conclusion
 
-**v2.0.46 is a SOLID, well-architected codebase** with sophisticated prediction and skip logic. The design elegantly separates concerns and uses appropriate patterns. However, **performance is held back by I/O overhead** (stats file rewriting 30+ times per GIF) and **maintainability is threatened by config explosion** (62 parameters). 
+**v2.0.48 is a solid, well-architected codebase** with sophisticated prediction and skip logic. The two most important completed items (stats I/O batching and config reorganization) are now closed.
 
-**Immediate priority**: Fix stats I/O batch writing (15-30 min, -40 min runtime improvement). **Secondary priority**: Reorganize config into nested structure (1 hour, +major maintainability win). **Long-term**: Add stats rotation and comprehensive edge-case testing.
+**Current priority**: WEBP early-resize tuning (P3) and scenario-based test coverage (P5).
 
 The prediction system is smart and well-tuned. The fallback paths (timeout rescue, best-effort, FAST-only mode) show defensive programming. With the recommended optimizations, this becomes a **9/10 system**.
