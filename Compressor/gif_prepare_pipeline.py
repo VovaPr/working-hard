@@ -93,7 +93,7 @@ def _prepare_balanced_medcut_context(
     predicted_medcut = pred_stage["predicted_medcut"]
     source_is_neighbor = pred_stage["source_is_neighbor"]
 
-    resized_frames, fast_size, predicted_medcut = _apply_prepare_adjustments(
+    resized_frames, fast_size, fast_bytes, predicted_medcut = _apply_prepare_adjustments(
         iteration=iteration,
         source=source,
         source_is_neighbor=source_is_neighbor,

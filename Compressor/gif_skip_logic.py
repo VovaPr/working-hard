@@ -18,7 +18,7 @@ def _try_hard_skip(
     gif_cfg,
     version,
 ):
-    """Returns suggested_scale if early hard-skip applies, else None."""
+    """Mutates state.scale and returns True if early hard-skip applies, else None."""
     if not (
         iteration == 0
         and (source == "formula (conservative)" or source_is_neighbor)
@@ -54,7 +54,7 @@ def _try_hard_skip(
     )
     print(f"{version} | [gif.skip] -> next scale={suggested_scale:.3f}")
     state.scale = suggested_scale
-    return suggested_scale
+    return True
 
 
 def _try_formula_under_target_skip(
@@ -68,7 +68,7 @@ def _try_formula_under_target_skip(
     gif_cfg,
     version,
 ):
-    """Skip MEDIANCUT when formula predicts below target. Returns suggested_scale or None."""
+    """Mutates state.scale and returns True if formula-under-target skip applies, else None."""
     if not (
         source == "formula (conservative)"
         and predicted_medcut < (gif_cfg.target_min_mb - 0.35)
@@ -87,11 +87,11 @@ def _try_formula_under_target_skip(
     if not (state.low_scale < suggested_scale < state.high_scale):
         suggested_scale = (state.low_scale + state.high_scale) / 2
 
-    print(f"{version} | [gif.skip] Skip decision accepted")
+    print(f"{version} | [gif.skip] Skip decision: formula-under-target skip")
     print(
         f"{version} | [gif.skip] Skipping MEDIANCUT on iter {iteration+1} "
         "(formula under-target pre-adjust)"
     )
     print(f"{version} | [gif.skip] -> next scale={suggested_scale:.3f}")
     state.scale = suggested_scale
-    return suggested_scale
+    return True

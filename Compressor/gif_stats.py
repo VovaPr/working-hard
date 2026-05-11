@@ -64,11 +64,6 @@ class CompressorStatsManager:
             and entry["frames"] == frames
         ]
 
-    def average_scale(self, palette, width, height, frames):
-        matches = self._filter_matches(palette, width, height, frames)
-        scales = [entry["scale"] for entry in matches if entry.get("scale", 0) > 0]
-        return (sum(scales) / len(scales)) if scales else None
-
     def average_scale_recent(self, palette, width, height, frames, decay_half_life=86400.0):
         matches = self._filter_matches(palette, width, height, frames)
         now = time.time()

@@ -1,7 +1,7 @@
 import os
 import time
 
-from compressor_gif_runtime import is_in_preferred_range
+from compressor_gif_runtime import is_in_preferred_range, is_in_target_range
 
 
 def _print_gif_result_header(input_path, total_frames, palette_count, width, height, version):
@@ -55,7 +55,7 @@ def _try_fast_accept(
     version,
 ):
     fast_in_preferred = is_in_preferred_range(fast_size, gif_cfg)
-    fast_in_target = gif_cfg.target_min_mb <= fast_size <= gif_cfg.target_max_mb
+    fast_in_target = is_in_target_range(fast_size, gif_cfg)
 
     can_fast_direct_accept = (
         gif_cfg.fast_direct_accept_enabled

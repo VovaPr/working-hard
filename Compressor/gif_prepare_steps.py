@@ -327,7 +327,7 @@ def _apply_prepare_adjustments(
     version,
     resized_frames,
 ):
-    resized_adj, fast_size, _, predicted_medcut = _apply_iter0_adjustments(
+    resized_adj, fast_size, fast_bytes, predicted_medcut = _apply_iter0_adjustments(
         iteration=iteration,
         source=source,
         source_is_neighbor=source_is_neighbor,
@@ -352,14 +352,14 @@ def _apply_prepare_adjustments(
     )
     if resized_adj is not None:
         resized_frames = resized_adj
-    return resized_frames, fast_size, predicted_medcut
+        return resized_frames, fast_size, fast_bytes, predicted_medcut
 
 
 def _apply_skip_decision_if_any(*, iteration, source_is_neighbor, skip_decision, state, version, debug_log):
     if not skip_decision.should_skip:
         return False
-    print(f"{version} | [gif.skip] Skip decision accepted")
-    debug_log("decision=skip_first_med | reason=formula prediction well above target")
+        print(f"{version} | [gif.skip] Skip decision: build_skip_decision skip ({skip_decision.reason})")
+        debug_log(f"decision=skip | reason={skip_decision.reason}")
     state.low_scale = skip_decision.next_low_scale
     state.high_scale = skip_decision.next_high_scale
     if skip_decision.mark_formula_extra_skip_used:
