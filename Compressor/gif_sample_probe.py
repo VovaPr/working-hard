@@ -30,7 +30,7 @@ def _run_sample_probe(
         and not state.sample_probe_done
         and iteration <= 1
         and (should_probe_formula or should_probe_neighbor)
-        and total_frames >= 120
+        and total_frames >= gif_cfg.sample_probe.sample_probe_min_frames
     ):
         probe_start = time.time()
         state.sample_ratio = _estimate_ratio_sample(
