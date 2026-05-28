@@ -7,13 +7,4 @@ drs.synchronization_state_desc, drs.synchronization_health_desc,
 FROM sys.dm_hadr_database_replica_states AS drs
 INNER JOIN sys.availability_groups AS ag ON drs.group_id = ag.group_id
 INNER JOIN sys.availability_databases_cluster AS adc ON drs.group_id = adc.group_id
---WHERE drs.is_local = 1
-
----
-
-$Computer = $env:COMPUTERNAME
-$MainAg = "US-ROL-A02-SG"
-
-Get-ChildItem "SQLSERVER:\Sql\$Computer\DEFAULT\AvailabilityGroups" | Test-SqlAvailabilityGroup
-Get-ChildItem "SQLSERVER:\Sql\$Computer\DEFAULT\AvailabilityGroups\$MainAg\AvailabilityReplicas" | Test-SqlAvailabilityReplica
-Get-ChildItem "SQLSERVER:\Sql\$Computer\DEFAULT\AvailabilityGroups\$MainAg\DatabaseReplicaStates" | Test-SqlDatabaseReplicaState
+WHERE drs.is_local = 1
