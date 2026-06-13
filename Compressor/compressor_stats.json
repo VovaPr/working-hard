@@ -3482,6 +3482,106 @@
       "med_size": 14.046971321105957,
       "scale": 0.7007022852998881,
       "timestamp": 1780343248.3187385
+    },
+    {
+      "palette": 239,
+      "width": 442,
+      "height": 606,
+      "frames": 480,
+      "fast_size": 8.211217880249023,
+      "med_size": 14.810795783996582,
+      "scale": 0.4015612243058588,
+      "timestamp": 1780540904.624769
+    },
+    {
+      "palette": 256,
+      "width": 320,
+      "height": 500,
+      "frames": 199,
+      "fast_size": 14.140658378601074,
+      "med_size": 14.140658378601074,
+      "scale": 0.8626389909772051,
+      "timestamp": 1780632705.0045717
+    },
+    {
+      "palette": 256,
+      "width": 540,
+      "height": 960,
+      "frames": 119,
+      "fast_size": 9.904747009277344,
+      "med_size": 13.793657302856445,
+      "scale": 0.6071810274274019,
+      "timestamp": 1780633451.2808952
+    },
+    {
+      "palette": 256,
+      "width": 620,
+      "height": 465,
+      "frames": 143,
+      "fast_size": 8.32332706451416,
+      "med_size": 14.171130180358887,
+      "scale": 0.7241574018554527,
+      "timestamp": 1780719920.331758
+    },
+    {
+      "palette": 91,
+      "width": 600,
+      "height": 500,
+      "frames": 528,
+      "fast_size": 12.651934623718262,
+      "med_size": 13.905308723449707,
+      "scale": 0.3789855255108324,
+      "timestamp": 1780720619.289349
+    },
+    {
+      "palette": 244,
+      "width": 800,
+      "height": 1422,
+      "frames": 227,
+      "fast_size": 8.29875659942627,
+      "med_size": 14.135854721069336,
+      "scale": 0.311528961115962,
+      "timestamp": 1780803336.185116
+    },
+    {
+      "palette": 249,
+      "width": 640,
+      "height": 360,
+      "frames": 155,
+      "fast_size": 6.796389579772949,
+      "med_size": 13.624614715576172,
+      "scale": 0.7080861748427284,
+      "timestamp": 1780968268.6994634
+    },
+    {
+      "palette": 256,
+      "width": 270,
+      "height": 480,
+      "frames": 575,
+      "fast_size": 14.40140438079834,
+      "med_size": 14.40140438079834,
+      "scale": 0.7053696259997948,
+      "timestamp": 1781160068.331065
+    },
+    {
+      "palette": 256,
+      "width": 644,
+      "height": 700,
+      "frames": 88,
+      "fast_size": 8.86635684967041,
+      "med_size": 13.971467971801758,
+      "scale": 0.7266379725600389,
+      "timestamp": 1781161962.7550452
+    },
+    {
+      "palette": 256,
+      "width": 560,
+      "height": 600,
+      "frames": 98,
+      "fast_size": 11.27755355834961,
+      "med_size": 14.122139930725098,
+      "scale": 0.7718022927830127,
+      "timestamp": 1781164086.247058
     }
   ],
   "_schema_version": 1,
@@ -3513,6 +3613,21 @@
       "resize_count": 1,
       "final_width": 1097,
       "final_height": 617
+    },
+    {
+      "width": 720,
+      "height": 1280,
+      "frames": 299,
+      "init_size_mb": 15.62,
+      "quality": 80,
+      "method": 2,
+      "result_size_mb": 13.66,
+      "encode_sec": 54.22,
+      "timestamp": 1781321982.6617885,
+      "count": 1,
+      "resize_count": 0,
+      "final_width": 720,
+      "final_height": 1280
     }
   ]
 }
