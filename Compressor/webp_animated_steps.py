@@ -77,7 +77,10 @@ def _run_encode_step(
     durations,
     webp_method,
     webp_method_direct_fast,
+    webp_method_exploratory_fast,
     can_use_direct_fast,
+    can_use_exploratory_fast,
+    exploratory_fast_max_steps,
     target_min_bytes,
     target_max_bytes,
     effective_max_seconds,
@@ -87,7 +90,18 @@ def _run_encode_step(
     quality = max(1, min(100, int(quality)))
     bracket_known = under_target_q is not None and over_target_q is not None
     direct_final_this_step = bool(direct_final_from_stats and step == 1)
-    method_in_use = webp_method_direct_fast if direct_final_this_step and can_use_direct_fast else webp_method
+    exploratory_fast_this_step = bool(
+        can_use_exploratory_fast
+        and not direct_final_this_step
+        and step <= exploratory_fast_max_steps
+        and not bracket_known
+    )
+    if direct_final_this_step and can_use_direct_fast:
+        method_in_use = webp_method_direct_fast
+    elif exploratory_fast_this_step:
+        method_in_use = webp_method_exploratory_fast
+    else:
+        method_in_use = webp_method
     step_elapsed = time.time() - started_at
     bracket_str = f"{under_target_q}-{over_target_q}" if bracket_known else "none"
     print(
@@ -124,6 +138,33 @@ def _run_encode_step(
         save_webp_frames=_save_webp_frames,
     )
     step_encode_elapsed += fallback_elapsed
+
+    if (
+        exploratory_fast_this_step
+        and effective_method != webp_method
+        and target_min_bytes <= effective_size <= target_max_bytes
+    ):
+        print(
+            f"{local_version} | [webp.explore] | target hit on fast method={effective_method}; "
+            f"confirm with method={webp_method}"
+        )
+        confirm_start = time.time()
+        confirmed_buf, quality, _ = encode_with_fallback(
+            frames,
+            durations,
+            quality,
+            webp_method,
+            local_version,
+            _save_webp_frames,
+        )
+        if confirmed_buf is not None:
+            step_encode_elapsed += time.time() - confirm_start
+            effective_buf = confirmed_buf
+            effective_size = len(confirmed_buf.getvalue())
+            effective_method = webp_method
+            print(
+                f"{local_version} | [webp.explore] | confirm result size={effective_size/1024:.2f} KB"
+            )
 
     print(
         f"{local_version} | [webp.step] | step={step} | size={effective_size/1024:.2f} KB | encode={step_encode_elapsed:.2f}s"
@@ -380,8 +421,11 @@ def _build_animation_state(*, startup, frames):
         "resize_count": 0,
         "webp_method": startup["webp_method"],
         "webp_method_direct_fast": startup["webp_method_direct_fast"],
+        "webp_method_exploratory_fast": startup["webp_method_exploratory_fast"],
         "effective_max_seconds": startup["effective_max_seconds"],
         "can_use_direct_fast": startup["can_use_direct_fast"],
+        "can_use_exploratory_fast": startup["can_use_exploratory_fast"],
+        "exploratory_fast_max_steps": startup["exploratory_fast_max_steps"],
         "under_target_q": None,
         "over_target_q": None,
         "observations": [],

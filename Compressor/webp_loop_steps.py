@@ -53,6 +53,7 @@ def resolve_startup_quality(
 def resolve_runtime_settings(gif_cfg, frame_count, local_version, direct_final_from_stats, known_result_size_mb):
     webp_method = max(0, min(6, gif_cfg.webp.webp_animated_method_default))
     webp_method_direct_fast = max(0, min(6, gif_cfg.webp.webp_animated_direct_final_fast_method))
+    webp_method_exploratory_fast = max(0, min(6, gif_cfg.webp.webp_animated_exploratory_fast_method))
     direct_fast_growth = max(1.0, float(gif_cfg.webp.webp_animated_direct_final_fast_max_growth))
     direct_fast_safety_ratio = max(0.50, min(1.0, float(gif_cfg.webp.webp_animated_direct_final_fast_safety_ratio)))
     effective_max_seconds = max(
@@ -87,11 +88,27 @@ def resolve_runtime_settings(gif_cfg, frame_count, local_version, direct_final_f
                 f"safety={direct_fast_safety_ratio:.2f}"
             )
 
+    can_use_exploratory_fast = (
+        gif_cfg.webp.webp_animated_exploratory_fast_enabled
+        and not direct_final_from_stats
+        and (frame_count or 0) >= gif_cfg.webp.webp_animated_exploratory_fast_min_frames
+        and webp_method_exploratory_fast != webp_method
+    )
+    if can_use_exploratory_fast:
+        print(
+            f"{local_version} | [webp.startup] | exploratory-fast enabled "
+            f"method={webp_method_exploratory_fast} steps<="
+            f"{gif_cfg.webp.webp_animated_exploratory_fast_max_steps}"
+        )
+
     return {
         "webp_method": webp_method,
         "webp_method_direct_fast": webp_method_direct_fast,
+        "webp_method_exploratory_fast": webp_method_exploratory_fast,
         "effective_max_seconds": effective_max_seconds,
         "can_use_direct_fast": can_use_direct_fast,
+        "can_use_exploratory_fast": can_use_exploratory_fast,
+        "exploratory_fast_max_steps": gif_cfg.webp.webp_animated_exploratory_fast_max_steps,
     }
 
 
