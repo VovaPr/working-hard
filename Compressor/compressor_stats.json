@@ -613,10 +613,10 @@
       "width": 700,
       "height": 394,
       "frames": 134,
-      "fast_size": 8.057398796081543,
-      "med_size": 14.047913551330566,
+      "fast_size": 9.415533065795898,
+      "med_size": 14.161258697509766,
       "scale": 0.727603589656135,
-      "timestamp": 1778499273.0542314,
+      "timestamp": 1781323510.006862,
       "count": 2
     },
     {
@@ -3582,6 +3582,16 @@
       "med_size": 14.122139930725098,
       "scale": 0.7718022927830127,
       "timestamp": 1781164086.247058
+    },
+    {
+      "palette": 256,
+      "width": 282,
+      "height": 500,
+      "frames": 293,
+      "fast_size": 14.302879333496094,
+      "med_size": 14.302879333496094,
+      "scale": 0.786084258907942,
+      "timestamp": 1781323067.7075803
     }
   ],
   "_schema_version": 1,
@@ -3628,6 +3638,21 @@
       "resize_count": 0,
       "final_width": 720,
       "final_height": 1280
+    },
+    {
+      "width": 608,
+      "height": 852,
+      "frames": 360,
+      "init_size_mb": 28.73,
+      "quality": 91,
+      "method": 2,
+      "result_size_mb": 14.81,
+      "encode_sec": 45.49,
+      "timestamp": 1781325210.4096234,
+      "count": 1,
+      "resize_count": 0,
+      "final_width": 608,
+      "final_height": 852
     }
   ]
 }
