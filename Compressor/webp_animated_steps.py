@@ -183,13 +183,39 @@ def _is_in_target_range(*, effective_size, target_min_bytes, target_max_bytes):
     return target_min_bytes <= effective_size <= target_max_bytes
 
 
-def _update_best_effort(*, best_effort, effective_size, effective_buf, quality, effective_method, target_mid_bytes):
+def _update_best_effort(
+    *,
+    best_effort,
+    effective_size,
+    effective_buf,
+    quality,
+    effective_method,
+    target_mid_bytes,
+    target_min_bytes,
+    target_max_bytes,
+    init_size,
+    preferred_method,
+):
     miss_abs = abs(effective_size - target_mid_bytes)
-    if best_effort["size"] is None or miss_abs < abs(best_effort["size"] - target_mid_bytes):
+    in_target = target_min_bytes <= effective_size <= target_max_bytes
+    not_larger_than_input = effective_size <= init_size
+    uses_preferred_method = effective_method == preferred_method
+
+    candidate_score = (
+        0 if in_target else 1,
+        0 if not_larger_than_input else 1,
+        0 if uses_preferred_method else 1,
+        miss_abs,
+    )
+
+    current_size = best_effort.get("size")
+    current_score = best_effort.get("score")
+    if current_size is None or current_score is None or candidate_score < current_score:
         best_effort["buf"] = effective_buf
         best_effort["size"] = effective_size
         best_effort["quality"] = quality
         best_effort["method"] = effective_method
+        best_effort["score"] = candidate_score
 
 
 def _update_quality_bracket(*, under_target_q, over_target_q, effective_size, quality, target_min_bytes, target_max_bytes, local_version):
@@ -429,7 +455,7 @@ def _build_animation_state(*, startup, frames):
         "under_target_q": None,
         "over_target_q": None,
         "observations": [],
-        "best_effort": {"buf": None, "size": None, "quality": None, "method": None},
+        "best_effort": {"buf": None, "size": None, "quality": None, "method": None, "score": None},
     }
 
 
@@ -477,6 +503,10 @@ def _check_early_exits(
         quality=state["quality"],
         effective_method=effective_method,
         target_mid_bytes=target_mid_bytes,
+        target_min_bytes=target_min_bytes,
+        target_max_bytes=target_max_bytes,
+        init_size=init_size,
+        preferred_method=state["webp_method"],
     )
     state["under_target_q"], state["over_target_q"] = _update_quality_bracket(
         under_target_q=state["under_target_q"],
