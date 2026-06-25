@@ -14,7 +14,7 @@ Usage:
   python find_duplicates.py C:\path\to\images --output dupes.txt
     python find_duplicates.py C:\path\to\images --visual --across-all
     python find_duplicates.py C:\path\to\images --visual --delete-older
-    python find_duplicates.py C:\path\to\images --visual --delete-older --apply-delete
+    python find_duplicates.py C:\path\to\images --visual --delete-older --dry-run-delete
 """
 
 import argparse
@@ -198,9 +198,11 @@ def main():
                         help="Compare all files together instead of per-folder")
     parser.add_argument("--output", help="Write results to file instead of stdout")
     parser.add_argument("--delete-older", action="store_true", default=False,
-                        help="Prepare deletion plan: keep newest file in each duplicate group")
+                        help="Delete older duplicates: keep newest file in each duplicate group")
+    parser.add_argument("--dry-run-delete", action="store_true", default=False,
+                        help="With --delete-older, write plan only without deleting files")
     parser.add_argument("--apply-delete", action="store_true", default=False,
-                        help="Actually delete files from --delete-older plan")
+                        help="Deprecated compatibility flag; deletion is automatic with --delete-older")
     args = parser.parse_args()
 
     # Default to exact if neither flag set
@@ -232,8 +234,13 @@ def main():
     if args.apply_delete and not args.delete_older:
         print("Error: --apply-delete requires --delete-older")
         sys.exit(2)
+
+    delete_enabled = args.delete_older and not args.dry_run_delete
+    if args.apply_delete:
+        delete_enabled = True
+
     if args.delete_older:
-        print(f"Delete mode: {'APPLY' if args.apply_delete else 'DRY-RUN'}")
+        print(f"Delete mode: {'APPLY' if delete_enabled else 'DRY-RUN'}")
 
     if args.visual:
         try:
@@ -273,7 +280,7 @@ def main():
                     _write(f"{idx}. KEEP {keep}")
                     _write(f"    DEL  {dup}")
 
-                if args.apply_delete and plans:
+                if delete_enabled and plans:
                     deleted_count, freed_bytes, errors = apply_delete_plan(plans)
                     _write("")
                     _write(f"Deleted: {deleted_count} file(s)")
@@ -322,7 +329,7 @@ def main():
                         _write(f"D{idx}. KEEP {keep}")
                         _write(f"     DEL  {dup}")
 
-                    if args.apply_delete and plans:
+                    if delete_enabled and plans:
                         deleted_count, freed_bytes, errors = apply_delete_plan(plans)
                         total_deleted += deleted_count
                         total_freed += freed_bytes
@@ -336,7 +343,7 @@ def main():
             _write(f"Total pairs: {total_pairs}")
             if args.delete_older:
                 _write(f"Total delete plan entries: {total_plan_entries}")
-                if args.apply_delete:
+                if delete_enabled:
                     _write(f"Total deleted: {total_deleted} file(s)")
                     _write(f"Total freed: {total_freed / (1024 * 1024):.2f} MB")
                     _write(f"Delete errors: {total_delete_errors}")
