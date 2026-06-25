@@ -13,6 +13,8 @@ Usage:
   python find_duplicates.py C:\path\to\images --visual --threshold 8
   python find_duplicates.py C:\path\to\images --output dupes.txt
     python find_duplicates.py C:\path\to\images --visual --across-all
+    python find_duplicates.py C:\path\to\images --visual --delete-older
+    python find_duplicates.py C:\path\to\images --visual --delete-older --apply-delete
 """
 
 import argparse
@@ -152,6 +154,35 @@ def groups_to_pairs(groups: list[list[Path]]) -> list[tuple[Path, Path]]:
     return pairs
 
 
+def plan_delete_older(groups: list[list[Path]]) -> list[tuple[Path, Path]]:
+    plans: list[tuple[Path, Path]] = []
+    for group in groups:
+        if len(group) < 2:
+            continue
+
+        # Keep the newest file by mtime; if equal, keep lexicographically first path.
+        ordered = sorted(group, key=lambda p: (-p.stat().st_mtime, str(p).lower()))
+        keep = ordered[0]
+        for dup in ordered[1:]:
+            plans.append((keep, dup))
+    return plans
+
+
+def apply_delete_plan(plans: list[tuple[Path, Path]]) -> tuple[int, int, list[str]]:
+    deleted_count = 0
+    freed_bytes = 0
+    errors: list[str] = []
+    for _, dup in plans:
+        try:
+            size = dup.stat().st_size
+            dup.unlink()
+            deleted_count += 1
+            freed_bytes += size
+        except Exception as e:
+            errors.append(f"[delete-error] {dup}: {e}")
+    return deleted_count, freed_bytes, errors
+
+
 def main():
     parser = argparse.ArgumentParser(description="Find duplicate image files.")
     parser.add_argument("directory", help="Root directory to scan")
@@ -166,6 +197,10 @@ def main():
     parser.add_argument("--across-all", action="store_true", default=False,
                         help="Compare all files together instead of per-folder")
     parser.add_argument("--output", help="Write results to file instead of stdout")
+    parser.add_argument("--delete-older", action="store_true", default=False,
+                        help="Prepare deletion plan: keep newest file in each duplicate group")
+    parser.add_argument("--apply-delete", action="store_true", default=False,
+                        help="Actually delete files from --delete-older plan")
     args = parser.parse_args()
 
     # Default to exact if neither flag set
@@ -194,6 +229,11 @@ def main():
     if args.visual:
         print(f"Threshold: {args.threshold}")
     print(f"Scope: {'all files together' if args.across_all else 'each folder separately'}")
+    if args.apply_delete and not args.delete_older:
+        print("Error: --apply-delete requires --delete-older")
+        sys.exit(2)
+    if args.delete_older:
+        print(f"Delete mode: {'APPLY' if args.apply_delete else 'DRY-RUN'}")
 
     if args.visual:
         try:
@@ -224,11 +264,31 @@ def main():
             _write(f"Total pairs: {len(pairs)}")
             for idx, (a, b) in enumerate(pairs, 1):
                 _write(f"{idx}. {a}  <=>  {b}")
+
+            if args.delete_older:
+                plans = plan_delete_older(groups)
+                _write("")
+                _write(f"Delete plan entries: {len(plans)}")
+                for idx, (keep, dup) in enumerate(plans, 1):
+                    _write(f"{idx}. KEEP {keep}")
+                    _write(f"    DEL  {dup}")
+
+                if args.apply_delete and plans:
+                    deleted_count, freed_bytes, errors = apply_delete_plan(plans)
+                    _write("")
+                    _write(f"Deleted: {deleted_count} file(s)")
+                    _write(f"Freed: {freed_bytes / (1024 * 1024):.2f} MB")
+                    for err in errors:
+                        _write(err)
         else:
             _write("Scope: each folder separately")
             buckets = [(folder, files) for folder, files in bucket_by_folder(paths).items() if len(files) >= 2]
             total_folders = len(buckets)
             total_pairs = 0
+            total_plan_entries = 0
+            total_deleted = 0
+            total_freed = 0
+            total_delete_errors = 0
 
             _write(f"Folders to scan: {total_folders}")
             if total_folders == 0:
@@ -254,8 +314,32 @@ def main():
                 for idx, (a, b) in enumerate(pairs, 1):
                     _write(f"{idx}. {a}  <=>  {b}")
 
+                if args.delete_older:
+                    plans = plan_delete_older(groups)
+                    total_plan_entries += len(plans)
+                    _write(f"Delete plan entries: {len(plans)}")
+                    for idx, (keep, dup) in enumerate(plans, 1):
+                        _write(f"D{idx}. KEEP {keep}")
+                        _write(f"     DEL  {dup}")
+
+                    if args.apply_delete and plans:
+                        deleted_count, freed_bytes, errors = apply_delete_plan(plans)
+                        total_deleted += deleted_count
+                        total_freed += freed_bytes
+                        total_delete_errors += len(errors)
+                        _write(f"Deleted in folder: {deleted_count} file(s)")
+                        _write(f"Freed in folder: {freed_bytes / (1024 * 1024):.2f} MB")
+                        for err in errors:
+                            _write(err)
+
             _write("")
             _write(f"Total pairs: {total_pairs}")
+            if args.delete_older:
+                _write(f"Total delete plan entries: {total_plan_entries}")
+                if args.apply_delete:
+                    _write(f"Total deleted: {total_deleted} file(s)")
+                    _write(f"Total freed: {total_freed / (1024 * 1024):.2f} MB")
+                    _write(f"Delete errors: {total_delete_errors}")
 
     finally:
         if writer is not None:
