@@ -136,6 +136,14 @@ def bucket_by_folder(paths: list[Path]) -> dict[Path, list[Path]]:
     return dict(sorted(buckets.items(), key=lambda item: str(item[0]).lower()))
 
 
+def resolve_output_path(output_arg: str) -> Path:
+    p = Path(output_arg)
+    if p.is_absolute():
+        return p.resolve()
+    script_dir = Path(__file__).resolve().parent
+    return (script_dir / p).resolve()
+
+
 def groups_to_pairs(groups: list[list[Path]]) -> list[tuple[Path, Path]]:
     pairs: list[tuple[Path, Path]] = []
     for group in groups:
@@ -179,7 +187,7 @@ def main():
         return
 
     if args.output:
-        print(f"Output file: {Path(args.output).resolve()}")
+        print(f"Output file: {resolve_output_path(args.output)}")
 
     mode = "visual (pHash)" if args.visual else "exact (SHA256)"
     print(f"Mode: {mode}")
@@ -195,7 +203,7 @@ def main():
             print("Run: pip install imagehash Pillow")
             sys.exit(1)
 
-    out_path = Path(args.output).resolve() if args.output else None
+    out_path = resolve_output_path(args.output) if args.output else None
     writer = open(out_path, "w", encoding="utf-8") if out_path else None
 
     def _write(line: str):
