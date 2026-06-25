@@ -252,6 +252,9 @@ def main():
 
     out_path = resolve_output_path(args.output) if args.output else None
     writer = open(out_path, "w", encoding="utf-8") if out_path else None
+    grand_total_deleted = 0
+    grand_total_freed = 0
+    grand_total_delete_errors = 0
 
     def _write(line: str):
         if writer is not None:
@@ -282,6 +285,9 @@ def main():
 
                 if delete_enabled and plans:
                     deleted_count, freed_bytes, errors = apply_delete_plan(plans)
+                    grand_total_deleted += deleted_count
+                    grand_total_freed += freed_bytes
+                    grand_total_delete_errors += len(errors)
                     _write("")
                     _write(f"Deleted: {deleted_count} file(s)")
                     _write(f"Freed: {freed_bytes / (1024 * 1024):.2f} MB")
@@ -347,6 +353,21 @@ def main():
                     _write(f"Total deleted: {total_deleted} file(s)")
                     _write(f"Total freed: {total_freed / (1024 * 1024):.2f} MB")
                     _write(f"Delete errors: {total_delete_errors}")
+
+                grand_total_deleted += total_deleted
+                grand_total_freed += total_freed
+                grand_total_delete_errors += total_delete_errors
+
+        if args.delete_older:
+            _write("")
+            _write("=== Deletion summary ===")
+            if delete_enabled:
+                _write(f"Deleted files total: {grand_total_deleted}")
+                _write(f"Deleted size total: {grand_total_freed / (1024 * 1024):.2f} MB")
+                _write(f"Delete errors total: {grand_total_delete_errors}")
+            else:
+                _write("Deleted files total: 0 (dry-run)")
+                _write("Deleted size total: 0.00 MB (dry-run)")
 
     finally:
         if writer is not None:
