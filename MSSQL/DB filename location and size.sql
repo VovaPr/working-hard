@@ -2,7 +2,7 @@ SELECT
     db.name AS name,
     mf.physical_name AS filename,
     fg.name AS filegroup,
-    mf.size * 8 AS size,
+    (mf.size * 8) / 1048576 AS sizeGB,
     CASE
         WHEN mf.type_desc = 'LOG' THEN 'log only'
         ELSE 'data only'
