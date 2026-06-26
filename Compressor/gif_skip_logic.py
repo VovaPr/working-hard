@@ -43,7 +43,11 @@ def _try_hard_skip(
         suggested_scale = state.scale * (target_mid / fast_size) ** 0.5 if fast_size > 0 else state.scale
         suggested_scale *= 0.92
 
-    suggested_scale = ScaleStrategy.apply_step_cap(state.scale, suggested_scale, max_step_ratio=0.55)
+    suggested_scale = ScaleStrategy.apply_step_cap(
+        state.scale,
+        suggested_scale,
+        max_step_ratio=gif_cfg.skip.hard_skip_max_step_ratio,
+    )
     suggested_scale = ScaleStrategy.clamp_to_bracket(suggested_scale, state.low_scale, state.high_scale)
 
     print(

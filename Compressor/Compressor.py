@@ -7,7 +7,7 @@ What this compressor does:
 """
 
 # Single source of truth for the application version.
-APP_VERSION = "2.0.54"
+APP_VERSION = "2.0.55"
 
 # Standard library imports
 import os, sys, time, subprocess
@@ -89,6 +89,7 @@ class GIFSkipConfig:
     sample_probe_overflow_margin: float = 1.005
     probe_skip_underflow_margin_mb: float = 0.10
     fast_probe_hard_skip_ratio: float = 1.30
+    hard_skip_max_step_ratio: float = 0.75
 
 
 @dataclass(frozen=True)
