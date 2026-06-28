@@ -3480,10 +3480,11 @@
       "width": 600,
       "height": 338,
       "frames": 204,
-      "fast_size": 10.688661575317383,
-      "med_size": 14.046971321105957,
-      "scale": 0.7007022852998881,
-      "timestamp": 1780343248.3187385
+      "fast_size": 10.866143226623535,
+      "med_size": 14.282132148742676,
+      "scale": 0.7062460998793109,
+      "timestamp": 1782642250.726599,
+      "count": 2
     },
     {
       "palette": 239,
@@ -3670,10 +3671,11 @@
       "width": 750,
       "height": 422,
       "frames": 112,
-      "fast_size": 9.70060920715332,
-      "med_size": 14.211193084716797,
+      "fast_size": 9.168769836425781,
+      "med_size": 13.998465538024902,
       "scale": 0.7381816439627535,
-      "timestamp": 1781757594.1469238
+      "timestamp": 1782570198.3210013,
+      "count": 2
     },
     {
       "palette": 248,
@@ -3964,6 +3966,106 @@
       "med_size": 13.99123764038086,
       "scale": 0.31860129168577134,
       "timestamp": 1782500703.722817
+    },
+    {
+      "palette": 256,
+      "width": 654,
+      "height": 1080,
+      "frames": 45,
+      "fast_size": 9.264729499816895,
+      "med_size": 14.33206558227539,
+      "scale": 0.812406907241415,
+      "timestamp": 1782529642.2450647
+    },
+    {
+      "palette": 256,
+      "width": 700,
+      "height": 429,
+      "frames": 120,
+      "fast_size": 9.83697509765625,
+      "med_size": 14.21842098236084,
+      "scale": 0.7273466728517792,
+      "timestamp": 1782529652.9359317
+    },
+    {
+      "palette": 256,
+      "width": 435,
+      "height": 500,
+      "frames": 161,
+      "fast_size": 10.121541976928711,
+      "med_size": 14.321964263916016,
+      "scale": 0.7246907272186356,
+      "timestamp": 1782531620.4104586
+    },
+    {
+      "palette": 70,
+      "width": 854,
+      "height": 480,
+      "frames": 326,
+      "fast_size": 12.841339111328125,
+      "med_size": 13.663415908813477,
+      "scale": 0.4860099546966858,
+      "timestamp": 1782534175.0877855
+    },
+    {
+      "palette": 256,
+      "width": 504,
+      "height": 480,
+      "frames": 120,
+      "fast_size": 7.176130294799805,
+      "med_size": 14.448332786560059,
+      "scale": 0.8022545169048835,
+      "timestamp": 1782534467.2976863
+    },
+    {
+      "palette": 256,
+      "width": 500,
+      "height": 367,
+      "frames": 169,
+      "fast_size": 10.234240531921387,
+      "med_size": 14.360465049743652,
+      "scale": 0.7885894958194927,
+      "timestamp": 1782572441.4386623
+    },
+    {
+      "palette": 100,
+      "width": 854,
+      "height": 480,
+      "frames": 300,
+      "fast_size": 12.944411277770996,
+      "med_size": 13.98069953918457,
+      "scale": 0.4476172444026789,
+      "timestamp": 1782617867.3332
+    },
+    {
+      "palette": 256,
+      "width": 600,
+      "height": 1137,
+      "frames": 73,
+      "fast_size": 9.634543418884277,
+      "med_size": 14.028719902038574,
+      "scale": 0.6994321501137457,
+      "timestamp": 1782619613.4275334
+    },
+    {
+      "palette": 253,
+      "width": 502,
+      "height": 502,
+      "frames": 169,
+      "fast_size": 7.978460311889648,
+      "med_size": 14.417518615722656,
+      "scale": 0.7373692592769097,
+      "timestamp": 1782639725.2413416
+    },
+    {
+      "palette": 235,
+      "width": 550,
+      "height": 309,
+      "frames": 216,
+      "fast_size": 8.483329772949219,
+      "med_size": 14.059247970581055,
+      "scale": 0.6890055830024393,
+      "timestamp": 1782640209.7981997
     }
   ],
   "_schema_version": 1,
@@ -4051,6 +4153,21 @@
       "result_size_mb": 13.32,
       "encode_sec": 65.69,
       "timestamp": 1782033626.2882547,
+      "count": 1,
+      "resize_count": 0,
+      "final_width": null,
+      "final_height": null
+    },
+    {
+      "width": 1280,
+      "height": 878,
+      "frames": 279,
+      "init_size_mb": 19.47,
+      "quality": 84,
+      "method": 2,
+      "result_size_mb": 13.15,
+      "encode_sec": 64.86,
+      "timestamp": 1782531786.358188,
       "count": 1,
       "resize_count": 0,
       "final_width": null,
