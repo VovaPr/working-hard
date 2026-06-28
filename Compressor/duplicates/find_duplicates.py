@@ -12,6 +12,8 @@ Usage:
   python find_duplicates.py C:\path\to\images --visual
   python find_duplicates.py C:\path\to\images --visual --threshold 8
   python find_duplicates.py C:\path\to\images --output dupes.txt
+    python find_duplicates.py C:\path\to\images --visual --per-top-level
+    python find_duplicates.py C:\path\to\images --visual --per-folder
   python find_duplicates.py C:\path\to\images --visual --across-all
   python find_duplicates.py C:\path\to\images --visual --delete-older
   python find_duplicates.py C:\path\to\images --visual --delete-older --dry-run-delete
@@ -138,6 +140,23 @@ def bucket_by_folder(paths: list[Path]) -> dict[Path, list[Path]]:
     return dict(sorted(buckets.items(), key=lambda item: str(item[0]).lower()))
 
 
+def bucket_by_top_level(root: Path, paths: list[Path]) -> dict[Path, list[Path]]:
+    buckets: dict[Path, list[Path]] = defaultdict(list)
+    for p in paths:
+        try:
+            rel = p.relative_to(root)
+        except ValueError:
+            buckets[p.parent].append(p)
+            continue
+
+        if len(rel.parts) <= 1:
+            group_key = root
+        else:
+            group_key = root / rel.parts[0]
+        buckets[group_key].append(p)
+    return dict(sorted(buckets.items(), key=lambda item: str(item[0]).lower()))
+
+
 def resolve_output_path(output_arg: str) -> Path:
     p = Path(output_arg)
     if p.is_absolute():
@@ -194,6 +213,10 @@ def main():
                         help="pHash distance threshold for --visual (default: 6, range 0-64)")
     parser.add_argument("--no-recursive", action="store_true", default=False,
                         help="Do not recurse into subdirectories")
+    parser.add_argument("--per-top-level", action="store_true", default=False,
+                        help="Compare duplicates within each top-level folder (default behavior)")
+    parser.add_argument("--per-folder", action="store_true", default=False,
+                        help="Compare duplicates within each concrete folder only")
     parser.add_argument("--across-all", action="store_true", default=False,
                         help="Compare all files together instead of per-folder")
     parser.add_argument("--output", help="Write results to file instead of stdout")
@@ -230,7 +253,12 @@ def main():
     print(f"Mode: {mode}")
     if args.visual:
         print(f"Threshold: {args.threshold}")
-    print(f"Scope: {'all files together' if args.across_all else 'each folder separately'}")
+    if args.per_top_level and args.per_folder:
+        print("Error: use only one of --per-top-level or --per-folder")
+        sys.exit(2)
+
+    group_scope = "each top-level folder" if not args.per_folder else "each folder separately"
+    print(f"Scope: {'all files together' if args.across_all else group_scope}")
     if args.apply_delete and not args.delete_older:
         print("Error: --apply-delete requires --delete-older")
         sys.exit(2)
@@ -294,8 +322,14 @@ def main():
                     for err in errors:
                         _write(err)
         else:
-            _write("Scope: each folder separately")
-            buckets = [(folder, files) for folder, files in bucket_by_folder(paths).items() if len(files) >= 2]
+            if args.per_folder:
+                _write("Scope: each folder separately")
+                grouped = bucket_by_folder(paths)
+            else:
+                _write("Scope: each top-level folder")
+                grouped = bucket_by_top_level(root, paths)
+
+            buckets = [(folder, files) for folder, files in grouped.items() if len(files) >= 2]
             total_folders = len(buckets)
             total_pairs = 0
             total_plan_entries = 0
