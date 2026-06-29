@@ -338,6 +338,17 @@ def _try_resize_fallback(*, quality, effective_size, target_mid_bytes, frames, r
     return resized_frames, new_resize_count, initial_quality, None, None
 
 
+def _predict_size_at_quality_floor(*, quality, effective_size, observations, quality_floor=45):
+    if quality <= 0 or effective_size <= 0:
+        return None
+    alpha = 1.0
+    model = _fit_quality_model(observations)
+    if model is not None:
+        _, alpha = model
+    q_ratio = max(0.01, quality_floor / max(1, quality))
+    return effective_size * (q_ratio ** alpha)
+
+
 def _fit_quality_model(observations):
     """Fit size = C * q^alpha from (quality, size_bytes) observations via log-linear regression.
     Uses at most the 3 most recent observations. Returns (C, alpha) or None if data is
@@ -611,6 +622,38 @@ def _pick_next_quality(
         observations=state["observations"],
         local_version=local_version,
     )
+
+    # If we only have upper bracket and are already at/near quality floor,
+    # skip one expensive encode step when model says floor quality still misses target.
+    if (
+        state.get("under_target_q") is None
+        and state.get("over_target_q") is not None
+        and raw_next_q <= 45
+    ):
+        predicted_floor_size = _predict_size_at_quality_floor(
+            quality=state["quality"],
+            effective_size=effective_size,
+            observations=state["observations"],
+            quality_floor=45,
+        )
+        floor_overflow_ratio = float(getattr(gif_cfg.webp, "webp_animated_floor_resize_overflow_ratio", 1.05))
+        floor_limit = target_max_bytes * max(1.0, floor_overflow_ratio)
+        if predicted_floor_size is not None and predicted_floor_size > floor_limit:
+            print(
+                f"{local_version} | [webp.predict] | floor q=45 likely misses target "
+                f"({predicted_floor_size/1024:.2f} KB > {floor_limit/1024:.2f} KB) -> early-resize"
+            )
+            resize_result = _try_resize_fallback(
+                quality=45,
+                effective_size=effective_size,
+                target_mid_bytes=target_mid_bytes,
+                frames=state["frames"],
+                resize_count=state["resize_count"],
+                local_version=local_version,
+            )
+            if resize_result is not None:
+                state["frames"], state["resize_count"], state["quality"], state["under_target_q"], state["over_target_q"] = resize_result
+                return "continue"
 
     # Conservative fast-path for new files: if the first startup attempt is far above target,
     # resize one step earlier (with bounded threshold) instead of spending an extra encode.

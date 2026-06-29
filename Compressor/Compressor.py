@@ -7,7 +7,7 @@ What this compressor does:
 """
 
 # Single source of truth for the application version.
-APP_VERSION = "2.0.57"
+APP_VERSION = "2.0.58"
 
 # Standard library imports
 import os, sys, time, subprocess
@@ -132,6 +132,7 @@ class WEBPConfig:
     webp_animated_new_file_fastpath_enabled: bool = True
     webp_animated_new_file_fastpath_overflow_ratio: float = 1.20
     webp_animated_new_file_fastpath_resize_q_threshold: int = 48
+    webp_animated_floor_resize_overflow_ratio: float = 1.05
 
 
 @dataclass(frozen=True)
