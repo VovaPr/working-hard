@@ -7,7 +7,7 @@ What this compressor does:
 """
 
 # Single source of truth for the application version.
-APP_VERSION = "2.0.56"
+APP_VERSION = "2.0.57"
 
 # Standard library imports
 import os, sys, time, subprocess
@@ -112,6 +112,7 @@ class WEBPConfig:
     webp_animated_direct_final_enabled: bool = True
     webp_animated_direct_final_init_tolerance_mb: float = 0.35
     webp_file_max_seconds: float = 3600.0
+    webp_file_min_seconds: float = 600.0
     webp_animated_near_band_ratio: float = 0.10
     webp_animated_nudge_small_ratio: float = 0.04
     webp_animated_nudge_small_step: int = 1

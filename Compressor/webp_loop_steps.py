@@ -57,7 +57,7 @@ def resolve_runtime_settings(gif_cfg, frame_count, local_version, direct_final_f
     direct_fast_growth = max(1.0, float(gif_cfg.webp.webp_animated_direct_final_fast_max_growth))
     direct_fast_safety_ratio = max(0.50, min(1.0, float(gif_cfg.webp.webp_animated_direct_final_fast_safety_ratio)))
     frame_adjusted_seconds = max(
-        60.0,
+        gif_cfg.webp.webp_file_min_seconds,
         (frame_count or 0) * gif_cfg.webp.webp_animated_max_seconds_per_frame,
     )
     effective_max_seconds = min(
