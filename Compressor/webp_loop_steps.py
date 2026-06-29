@@ -56,11 +56,15 @@ def resolve_runtime_settings(gif_cfg, frame_count, local_version, direct_final_f
     webp_method_exploratory_fast = max(0, min(6, gif_cfg.webp.webp_animated_exploratory_fast_method))
     direct_fast_growth = max(1.0, float(gif_cfg.webp.webp_animated_direct_final_fast_max_growth))
     direct_fast_safety_ratio = max(0.50, min(1.0, float(gif_cfg.webp.webp_animated_direct_final_fast_safety_ratio)))
-    effective_max_seconds = max(
-        gif_cfg.webp.webp_file_max_seconds,
+    frame_adjusted_seconds = max(
+        60.0,
         (frame_count or 0) * gif_cfg.webp.webp_animated_max_seconds_per_frame,
     )
-    if effective_max_seconds > gif_cfg.webp.webp_file_max_seconds:
+    effective_max_seconds = min(
+        gif_cfg.webp.webp_file_max_seconds,
+        frame_adjusted_seconds,
+    )
+    if effective_max_seconds < gif_cfg.webp.webp_file_max_seconds:
         print(
             f"{local_version} | [webp.startup] | timeout={effective_max_seconds:.0f}s "
             f"(frame-adjusted, frames={frame_count}, base={gif_cfg.webp.webp_file_max_seconds:.0f}s)"
