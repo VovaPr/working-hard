@@ -286,6 +286,8 @@ def _try_near_target_nudge(
     target_max_bytes,
     gif_cfg,
     bracket_known,
+    under_target_q,
+    over_target_q,
     quality,
     local_version,
 ):
@@ -305,11 +307,25 @@ def _try_near_target_nudge(
         if miss_ratio <= gif_cfg.webp.webp_animated_nudge_small_ratio
         else gif_cfg.webp.webp_animated_nudge_large_step
     )
+
+    # Under-only path (no upper bracket yet): use a slightly larger adaptive nudge
+    # to avoid many expensive +1 encode steps near the lower target edge.
+    if effective_size < target_min_bytes and under_target_q is not None and over_target_q is None:
+        adaptive_step = max(1, min(3, int(math.ceil(miss_ratio / 0.0125))))
+        nudge_step = max(nudge_step, adaptive_step)
+
     next_quality = min(100, quality + nudge_step) if effective_size < target_min_bytes else max(45, quality - nudge_step)
     print(
         f"{local_version} | [webp.nudge] | miss={miss_ratio*100:.2f}% step={nudge_step} | q={quality} -> q={next_quality}"
     )
     return next_quality
+
+
+def _apply_resize_result(state, resize_result):
+    state["frames"], state["resize_count"], state["quality"], state["under_target_q"], state["over_target_q"] = resize_result
+    # Old observations were measured on different geometry and distort prediction after resize.
+    state["observations"] = []
+    return "continue"
 
 
 def _try_resize_fallback(*, quality, effective_size, target_mid_bytes, frames, resize_count, local_version):
@@ -594,6 +610,8 @@ def _pick_next_quality(
         target_max_bytes=target_max_bytes,
         gif_cfg=gif_cfg,
         bracket_known=bracket_known,
+        under_target_q=state["under_target_q"],
+        over_target_q=state["over_target_q"],
         quality=state["quality"],
         local_version=local_version,
     )
@@ -610,8 +628,7 @@ def _pick_next_quality(
         local_version=local_version,
     )
     if resize_result is not None:
-        state["frames"], state["resize_count"], state["quality"], state["under_target_q"], state["over_target_q"] = resize_result
-        return "continue"
+        return _apply_resize_result(state, resize_result)
 
     raw_next_q = _resolve_next_quality(
         under_target_q=state["under_target_q"],
@@ -652,8 +669,7 @@ def _pick_next_quality(
                 local_version=local_version,
             )
             if resize_result is not None:
-                state["frames"], state["resize_count"], state["quality"], state["under_target_q"], state["over_target_q"] = resize_result
-                return "continue"
+                return _apply_resize_result(state, resize_result)
 
     # Conservative fast-path for new files: if the first startup attempt is far above target,
     # resize one step earlier (with bounded threshold) instead of spending an extra encode.
@@ -684,8 +700,7 @@ def _pick_next_quality(
             local_version=local_version,
         )
         if resize_result is not None:
-            state["frames"], state["resize_count"], state["quality"], state["under_target_q"], state["over_target_q"] = resize_result
-            return "continue"
+            return _apply_resize_result(state, resize_result)
 
     if raw_next_q < 45:
         resize_result = _try_resize_fallback(
@@ -697,8 +712,7 @@ def _pick_next_quality(
             local_version=local_version,
         )
         if resize_result is not None:
-            state["frames"], state["resize_count"], state["quality"], state["under_target_q"], state["over_target_q"] = resize_result
-            return "continue"
+            return _apply_resize_result(state, resize_result)
     state["quality"] = max(45, raw_next_q)
     return "continue"
 
