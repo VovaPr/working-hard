@@ -27,6 +27,7 @@ from collections import defaultdict
 from pathlib import Path
 
 IMAGE_EXTENSIONS = {".gif", ".png", ".jpg", ".jpeg", ".webp", ".bmp", ".tiff", ".tif"}
+DEFAULT_ANIMATION_SAMPLES = 12
 
 
 def sha256_of(path: Path) -> str:
@@ -37,12 +38,40 @@ def sha256_of(path: Path) -> str:
     return h.hexdigest()
 
 
-def phash_of(path: Path):
+def _sample_frame_indices(frame_count: int, sample_count: int) -> list[int]:
+    if frame_count <= 1:
+        return [0]
+    sample_count = max(1, sample_count)
+    if frame_count <= sample_count:
+        return list(range(frame_count))
+
+    last_index = frame_count - 1
+    seen: set[int] = set()
+    indices: list[int] = []
+    for i in range(sample_count):
+        idx = round(i * last_index / (sample_count - 1))
+        if idx not in seen:
+            seen.add(idx)
+            indices.append(idx)
+    return indices
+
+
+def phash_of(path: Path, animation_samples: int):
     import imagehash
-    from PIL import Image
+    from PIL import Image, ImageSequence
 
     with Image.open(path) as img:
-        return imagehash.phash(img)
+        is_animated = bool(getattr(img, "is_animated", False)) and getattr(img, "n_frames", 1) > 1
+        if not is_animated:
+            return (int(str(imagehash.phash(img)), 16),)
+
+        frame_hashes: list[int] = []
+        sample_indices = set(_sample_frame_indices(img.n_frames, animation_samples))
+        for frame_index, frame in enumerate(ImageSequence.Iterator(img)):
+            if frame_index not in sample_indices:
+                continue
+            frame_hashes.append(int(str(imagehash.phash(frame.convert("RGB"))), 16))
+        return tuple(frame_hashes) if frame_hashes else (int(str(imagehash.phash(img.convert("RGB"))), 16),)
 
 
 def _progress(i: int, total: int, path: Path):
@@ -72,31 +101,40 @@ def find_exact_duplicates(paths: list[Path]) -> list[list[Path]]:
     return [group for group in groups.values() if len(group) > 1]
 
 
-def find_visual_duplicates(paths: list[Path], threshold: int) -> list[list[Path]]:
-    hashes: list[tuple] = []  # (hash, path)
+def _signature_key(signature: tuple[int, ...]) -> str:
+    return "|".join(f"{part:016x}" for part in signature)
+
+
+def _signature_distance(signature_a: tuple[int, ...], signature_b: tuple[int, ...]) -> int:
+    max_len = max(len(signature_a), len(signature_b))
+    padded_a = signature_a + (signature_a[-1],) * (max_len - len(signature_a))
+    padded_b = signature_b + (signature_b[-1],) * (max_len - len(signature_b))
+    total_distance = 0
+    for part_a, part_b in zip(padded_a, padded_b):
+        total_distance += (part_a ^ part_b).bit_count()
+    return round(total_distance / max_len)
+
+
+def find_visual_duplicates(paths: list[Path], threshold: int, animation_samples: int) -> list[list[Path]]:
+    hashes: list[tuple[tuple[int, ...], Path]] = []
     total = len(paths)
     for i, p in enumerate(paths, 1):
         _progress(i, total, p)
         try:
-            hashes.append((phash_of(p), p))
+            hashes.append((phash_of(p, animation_samples), p))
         except Exception as e:
             print(f"\n  [skip] {p}: {e}")
     print()
 
-    # Fast path: exact hash matches (O(n))
+    # Fast path: exact signature matches (O(n))
     if threshold == 0:
         exact: dict[str, list[int]] = defaultdict(list)
-        for i, (h, _) in enumerate(hashes):
-            exact[str(h)].append(i)
+        for i, (signature, _) in enumerate(hashes):
+            exact[_signature_key(signature)].append(i)
         return [[hashes[j][1] for j in idx_list] for idx_list in exact.values() if len(idx_list) > 1]
 
-    # Near-duplicate grouping using numpy vectorized Hamming distance
-    import numpy as np
-
     n = len(hashes)
-    hash_ints = np.array([int(str(h), 16) for h, _ in hashes], dtype=np.uint64)
-
-    print(f"  Grouping {n} hashes (vectorized)...")
+    print(f"  Grouping {n} visual signatures...")
     used: set[int] = set()
     groups: list[list[Path]] = []
     for i in range(n):
@@ -105,9 +143,14 @@ def find_visual_duplicates(paths: list[Path], threshold: int) -> list[list[Path]
         if i % 500 == 0:
             print(f"\r  Grouping {i}/{n} ({i*100//n}%) groups={len(groups)} ...", end="", flush=True)
 
-        xor = hash_ints ^ hash_ints[i]
-        distances = np.array([bin(int(x)).count("1") for x in xor], dtype=np.int32)
-        matches = [j for j in np.where(distances <= threshold)[0].tolist() if j != i and j not in used]
+        signature_i, _ = hashes[i]
+        matches: list[int] = []
+        for j in range(i + 1, n):
+            if j in used:
+                continue
+            signature_j, _ = hashes[j]
+            if _signature_distance(signature_i, signature_j) <= threshold:
+                matches.append(j)
 
         if matches:
             group_indices = [i] + matches
@@ -179,8 +222,15 @@ def plan_delete_older(groups: list[list[Path]]) -> list[tuple[Path, Path]]:
         if len(group) < 2:
             continue
 
-        # Keep the newest file by mtime; if equal, keep lexicographically first path.
-        ordered = sorted(group, key=lambda p: (-p.stat().st_mtime, str(p).lower()))
+        # Prefer GIF over WEBP in mixed duplicate groups, then keep newest file.
+        ordered = sorted(
+            group,
+            key=lambda p: (
+                0 if p.suffix.lower() == ".gif" else 1,
+                -p.stat().st_mtime,
+                str(p).lower(),
+            ),
+        )
         keep = ordered[0]
         for dup in ordered[1:]:
             plans.append((keep, dup))
@@ -211,6 +261,8 @@ def main():
                         help="Visual similarity via perceptual hash (pHash)")
     parser.add_argument("--threshold", type=int, default=6,
                         help="pHash distance threshold for --visual (default: 6, range 0-64)")
+    parser.add_argument("--animation-samples", type=int, default=DEFAULT_ANIMATION_SAMPLES,
+                        help="Sample this many frames across animated GIF/WEBP in --visual mode (default: 12)")
     parser.add_argument("--no-recursive", action="store_true", default=False,
                         help="Do not recurse into subdirectories")
     parser.add_argument("--per-top-level", action="store_true", default=False,
@@ -253,6 +305,7 @@ def main():
     print(f"Mode: {mode}")
     if args.visual:
         print(f"Threshold: {args.threshold}")
+        print(f"Animation samples: {max(1, args.animation_samples)}")
     if args.per_top_level and args.per_folder:
         print("Error: use only one of --per-top-level or --per-folder")
         sys.exit(2)
@@ -294,7 +347,7 @@ def main():
         if args.across_all:
             _write("Scope: all files together")
             if args.visual:
-                groups = find_visual_duplicates(paths, args.threshold)
+                groups = find_visual_duplicates(paths, args.threshold, max(1, args.animation_samples))
             else:
                 groups = find_exact_duplicates(paths)
 
@@ -346,7 +399,7 @@ def main():
                 print()
 
                 if args.visual:
-                    groups = find_visual_duplicates(folder_paths, args.threshold)
+                    groups = find_visual_duplicates(folder_paths, args.threshold, max(1, args.animation_samples))
                 else:
                     groups = find_exact_duplicates(folder_paths)
 
