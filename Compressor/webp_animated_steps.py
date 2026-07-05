@@ -328,6 +328,29 @@ def _apply_resize_result(state, resize_result):
     return "continue"
 
 
+def _is_stuck_quality_bound(*, state, effective_size, target_min_bytes, target_max_bytes, raw_next_q):
+    next_q = max(45, min(100, int(raw_next_q)))
+    if next_q != state["quality"]:
+        return False
+
+    at_upper_bound_stuck = (
+        state["quality"] >= 100
+        and state.get("under_target_q") is not None
+        and state.get("over_target_q") is None
+        and effective_size < target_min_bytes
+    )
+    if at_upper_bound_stuck:
+        return True
+
+    at_lower_bound_stuck = (
+        state["quality"] <= 45
+        and state.get("over_target_q") is not None
+        and state.get("under_target_q") is None
+        and effective_size > target_max_bytes
+    )
+    return at_lower_bound_stuck
+
+
 def _try_resize_fallback(*, quality, effective_size, target_mid_bytes, frames, resize_count, local_version):
     if quality > 45:
         return None
@@ -713,6 +736,20 @@ def _pick_next_quality(
         )
         if resize_result is not None:
             return _apply_resize_result(state, resize_result)
+
+    if _is_stuck_quality_bound(
+        state=state,
+        effective_size=effective_size,
+        target_min_bytes=target_min_bytes,
+        target_max_bytes=target_max_bytes,
+        raw_next_q=raw_next_q,
+    ):
+        print(
+            f"{local_version} | [webp.predict] | quality bound reached (q={state['quality']}) "
+            f"with no bracket progress -> stop early"
+        )
+        return "stuck-bound"
+
     state["quality"] = max(45, raw_next_q)
     return "continue"
 
@@ -795,7 +832,7 @@ def _handle_iteration_outcome(
     if early_exit == "done":
         return "done"
 
-    return _pick_next_quality(
+    next_action = _pick_next_quality(
         state=state,
         effective_size=effective_size,
         bracket_known=bracket_known,
@@ -805,6 +842,27 @@ def _handle_iteration_outcome(
         gif_cfg=gif_cfg,
         local_version=local_version,
     )
+    if next_action == "stuck-bound":
+        persist_best_effort(
+            reason="quality-bound",
+            local_version=local_version,
+            target_mid_bytes=target_mid_bytes,
+            best_effort_buf=state["best_effort"]["buf"],
+            best_effort_size=state["best_effort"]["size"],
+            best_effort_q=state["best_effort"]["quality"],
+            best_effort_method=state["best_effort"]["method"],
+            stats_mgr_webp=stats_mgr_webp,
+            width=width,
+            height=height,
+            frame_count=frame_count,
+            init_size=init_size,
+            path=path,
+            started_at=started_at,
+            resize_count=state["resize_count"],
+            encode_elapsed=step_encode_elapsed,
+        )
+        return "done"
+    return next_action
 
 
 def _persist_max_iterations(
