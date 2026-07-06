@@ -22,6 +22,8 @@ Usage:
 import argparse
 import hashlib
 import sys
+import time
+from datetime import datetime
 from itertools import combinations
 from collections import defaultdict
 from pathlib import Path
@@ -89,6 +91,7 @@ def _folder_progress(i: int, total: int, folder: Path):
 
 
 def find_exact_duplicates(paths: list[Path]) -> list[list[Path]]:
+    hash_started = time.perf_counter()
     groups: dict[str, list[Path]] = defaultdict(list)
     total = len(paths)
     for i, p in enumerate(paths, 1):
@@ -98,7 +101,12 @@ def find_exact_duplicates(paths: list[Path]) -> list[list[Path]]:
         except OSError as e:
             print(f"\n  [skip] {p}: {e}")
     print()
-    return [group for group in groups.values() if len(group) > 1]
+    hash_seconds = time.perf_counter() - hash_started
+
+    grouping_started = time.perf_counter()
+    dup_groups = [group for group in groups.values() if len(group) > 1]
+    grouping_seconds = time.perf_counter() - grouping_started
+    return dup_groups, {"hash_seconds": hash_seconds, "grouping_seconds": grouping_seconds}
 
 
 def _signature_key(signature: tuple[int, ...]) -> str:
@@ -116,6 +124,7 @@ def _signature_distance(signature_a: tuple[int, ...], signature_b: tuple[int, ..
 
 
 def find_visual_duplicates(paths: list[Path], threshold: int, animation_samples: int) -> list[list[Path]]:
+    hash_started = time.perf_counter()
     hashes: list[tuple[tuple[int, ...], Path]] = []
     total = len(paths)
     for i, p in enumerate(paths, 1):
@@ -125,14 +134,19 @@ def find_visual_duplicates(paths: list[Path], threshold: int, animation_samples:
         except Exception as e:
             print(f"\n  [skip] {p}: {e}")
     print()
+    hash_seconds = time.perf_counter() - hash_started
 
     # Fast path: exact signature matches (O(n))
     if threshold == 0:
+        grouping_started = time.perf_counter()
         exact: dict[str, list[int]] = defaultdict(list)
         for i, (signature, _) in enumerate(hashes):
             exact[_signature_key(signature)].append(i)
-        return [[hashes[j][1] for j in idx_list] for idx_list in exact.values() if len(idx_list) > 1]
+        groups = [[hashes[j][1] for j in idx_list] for idx_list in exact.values() if len(idx_list) > 1]
+        grouping_seconds = time.perf_counter() - grouping_started
+        return groups, {"hash_seconds": hash_seconds, "grouping_seconds": grouping_seconds}
 
+    grouping_started = time.perf_counter()
     n = len(hashes)
     print(f"  Grouping {n} visual signatures...")
     used: set[int] = set()
@@ -158,7 +172,8 @@ def find_visual_duplicates(paths: list[Path], threshold: int, animation_samples:
             groups.append([hashes[j][1] for j in group_indices])
 
     print(f"\r  Grouping done. Found {len(groups)} group(s).          ")
-    return groups
+    grouping_seconds = time.perf_counter() - grouping_started
+    return groups, {"hash_seconds": hash_seconds, "grouping_seconds": grouping_seconds}
 
 
 def collect_images(root: Path, recursive: bool) -> list[Path]:
@@ -289,53 +304,8 @@ def main():
         print(f"Error: '{root}' is not a directory.")
         sys.exit(1)
 
-    recursive = not args.no_recursive
-    print(f"Scanning {'recursively ' if recursive else ''}in: {root}")
-    paths = collect_images(root, recursive)
-    print(f"Found {len(paths)} image file(s).")
-
-    if not paths:
-        print("Nothing to compare.")
-        return
-
-    if args.output:
-        print(f"Output file: {resolve_output_path(args.output)}")
-
-    mode = "visual (pHash)" if args.visual else "exact (SHA256)"
-    print(f"Mode: {mode}")
-    if args.visual:
-        print(f"Threshold: {args.threshold}")
-        print(f"Animation samples: {max(1, args.animation_samples)}")
-    if args.per_top_level and args.per_folder:
-        print("Error: use only one of --per-top-level or --per-folder")
-        sys.exit(2)
-
-    group_scope = "each top-level folder" if not args.per_folder else "each folder separately"
-    print(f"Scope: {'all files together' if args.across_all else group_scope}")
-    if args.apply_delete and not args.delete_older:
-        print("Error: --apply-delete requires --delete-older")
-        sys.exit(2)
-
-    delete_enabled = args.delete_older and not args.dry_run_delete
-    if args.apply_delete:
-        delete_enabled = True
-
-    if args.delete_older:
-        print(f"Delete mode: {'APPLY' if delete_enabled else 'DRY-RUN'}")
-
-    if args.visual:
-        try:
-            import imagehash  # noqa: F401
-        except ImportError:
-            print("\nERROR: 'imagehash' is not installed.")
-            print("Run: pip install imagehash Pillow")
-            sys.exit(1)
-
     out_path = resolve_output_path(args.output) if args.output else None
     writer = open(out_path, "w", encoding="utf-8") if out_path else None
-    grand_total_deleted = 0
-    grand_total_freed = 0
-    grand_total_delete_errors = 0
 
     def _write(line: str):
         if writer is not None:
@@ -343,13 +313,87 @@ def main():
         else:
             print(line)
 
+    def _fmt_seconds(seconds: float) -> str:
+        return f"{seconds:.2f}s"
+
+    run_started_at = datetime.now()
+    run_started_perf = time.perf_counter()
+
+    recursive = not args.no_recursive
+    _write(f"Started at: {run_started_at.strftime('%Y-%m-%d %H:%M:%S')}")
+    _write(f"Scanning {'recursively ' if recursive else ''}in: {root}")
+    scan_started = time.perf_counter()
+    paths = collect_images(root, recursive)
+    scan_seconds = time.perf_counter() - scan_started
+    _write(f"Found {len(paths)} image file(s).")
+    _write(f"Block scan: {_fmt_seconds(scan_seconds)}")
+
+    if not paths:
+        run_finished_at = datetime.now()
+        total_seconds = time.perf_counter() - run_started_perf
+        _write("Nothing to compare.")
+        _write(f"Finished at: {run_finished_at.strftime('%Y-%m-%d %H:%M:%S')}")
+        _write(f"Total time: {_fmt_seconds(total_seconds)}")
+        if writer is not None:
+            writer.close()
+        if out_path:
+            print(f"Results written to: {out_path}")
+        return
+
+    if args.output:
+        _write(f"Output file: {out_path}")
+
+    mode = "visual (pHash)" if args.visual else "exact (SHA256)"
+    _write(f"Mode: {mode}")
+    if args.visual:
+        _write(f"Threshold: {args.threshold}")
+        _write(f"Animation samples: {max(1, args.animation_samples)}")
+    if args.per_top_level and args.per_folder:
+        _write("Error: use only one of --per-top-level or --per-folder")
+        if writer is not None:
+            writer.close()
+        sys.exit(2)
+
+    group_scope = "each top-level folder" if not args.per_folder else "each folder separately"
+    _write(f"Scope: {'all files together' if args.across_all else group_scope}")
+    if args.apply_delete and not args.delete_older:
+        _write("Error: --apply-delete requires --delete-older")
+        if writer is not None:
+            writer.close()
+        sys.exit(2)
+
+    delete_enabled = args.delete_older and not args.dry_run_delete
+    if args.apply_delete:
+        delete_enabled = True
+
+    if args.delete_older:
+        _write(f"Delete mode: {'APPLY' if delete_enabled else 'DRY-RUN'}")
+
+    if args.visual:
+        try:
+            import imagehash  # noqa: F401
+        except ImportError:
+            print("\nERROR: 'imagehash' is not installed.")
+            print("Run: pip install imagehash Pillow")
+            if writer is not None:
+                writer.close()
+            sys.exit(1)
+
+    grand_total_deleted = 0
+    grand_total_freed = 0
+    grand_total_delete_errors = 0
+
     try:
+        compare_started = time.perf_counter()
         if args.across_all:
+            block_started = time.perf_counter()
             _write("Scope: all files together")
             if args.visual:
-                groups = find_visual_duplicates(paths, args.threshold, max(1, args.animation_samples))
+                groups, block_stats = find_visual_duplicates(paths, args.threshold, max(1, args.animation_samples))
             else:
-                groups = find_exact_duplicates(paths)
+                groups, block_stats = find_exact_duplicates(paths)
+            _write(f"Block compare_hashes: {_fmt_seconds(block_stats['hash_seconds'])}")
+            _write(f"Block compare_grouping: {_fmt_seconds(block_stats['grouping_seconds'])}")
 
             pairs = groups_to_pairs(groups)
             _write(f"Total pairs: {len(pairs)}")
@@ -374,13 +418,16 @@ def main():
                     _write(f"Freed: {freed_bytes / (1024 * 1024):.2f} MB")
                     for err in errors:
                         _write(err)
+            _write(f"Block across_all_total: {_fmt_seconds(time.perf_counter() - block_started)}")
         else:
+            bucket_started = time.perf_counter()
             if args.per_folder:
                 _write("Scope: each folder separately")
                 grouped = bucket_by_folder(paths)
             else:
                 _write("Scope: each top-level folder")
                 grouped = bucket_by_top_level(root, paths)
+            _write(f"Block bucketize: {_fmt_seconds(time.perf_counter() - bucket_started)}")
 
             buckets = [(folder, files) for folder, files in grouped.items() if len(files) >= 2]
             total_folders = len(buckets)
@@ -395,16 +442,22 @@ def main():
                 _write("No folders with 2+ images found.")
 
             for i, (folder, folder_paths) in enumerate(buckets, 1):
+                folder_started = time.perf_counter()
                 _folder_progress(i, total_folders, folder)
                 print()
 
                 if args.visual:
-                    groups = find_visual_duplicates(folder_paths, args.threshold, max(1, args.animation_samples))
+                    groups, block_stats = find_visual_duplicates(folder_paths, args.threshold, max(1, args.animation_samples))
                 else:
-                    groups = find_exact_duplicates(folder_paths)
+                    groups, block_stats = find_exact_duplicates(folder_paths)
 
                 pairs = groups_to_pairs(groups)
                 if not pairs:
+                    _write(
+                        f"[timing] Folder {folder} | hashes={_fmt_seconds(block_stats['hash_seconds'])} "
+                        f"grouping={_fmt_seconds(block_stats['grouping_seconds'])} "
+                        f"total={_fmt_seconds(time.perf_counter() - folder_started)}"
+                    )
                     continue
 
                 total_pairs += len(pairs)
@@ -435,6 +488,12 @@ def main():
                         for err in errors:
                             _write(err)
 
+                _write(
+                    f"[timing] Folder {folder} | hashes={_fmt_seconds(block_stats['hash_seconds'])} "
+                    f"grouping={_fmt_seconds(block_stats['grouping_seconds'])} "
+                    f"total={_fmt_seconds(time.perf_counter() - folder_started)}"
+                )
+
             _write("")
             _write(f"Total pairs: {total_pairs}")
             if args.delete_older:
@@ -443,6 +502,7 @@ def main():
                     _write(f"Total deleted: {total_deleted} file(s)")
                     _write(f"Total freed: {total_freed / (1024 * 1024):.2f} MB")
                     _write(f"Delete errors: {total_delete_errors}")
+            _write(f"Block folders_compare_total: {_fmt_seconds(time.perf_counter() - compare_started)}")
 
         if args.delete_older:
             _write("")
@@ -454,6 +514,12 @@ def main():
             else:
                 _write("Deleted files total: 0 (dry-run)")
                 _write("Deleted size total: 0.00 MB (dry-run)")
+
+        run_finished_at = datetime.now()
+        total_seconds = time.perf_counter() - run_started_perf
+        _write("")
+        _write(f"Finished at: {run_finished_at.strftime('%Y-%m-%d %H:%M:%S')}")
+        _write(f"Total time: {_fmt_seconds(total_seconds)}")
 
     finally:
         if writer is not None:
