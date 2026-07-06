@@ -1,4 +1,4 @@
-import time
+from iterative_engine import run_iterative_search
 
 from webp_animated_steps import (
     _apply_startup_pre_resize_if_needed,
@@ -55,7 +55,7 @@ def _compress_animated_webp(
         gif_cfg=gif_cfg,
     )
 
-    for step in range(1, gif_cfg.webp.webp_animated_max_iterations + 1):
+    def _run_step(step):
         step_result = _run_encode_step(
             step=step,
             quality=state["quality"],
@@ -76,10 +76,10 @@ def _compress_animated_webp(
             started_at=started_at,
             local_version=local_version,
         )
-        if step_result is None:
-            return
+        return step_result
 
-        action = _handle_iteration_outcome(
+    def _handle_outcome(step_result):
+        return _handle_iteration_outcome(
             state=state,
             step_result=step_result,
             durations=durations,
@@ -96,19 +96,25 @@ def _compress_animated_webp(
             height=height,
             frame_count=frame_count,
         )
-        if action == "done":
-            return
 
-    _persist_max_iterations(
-        state=state,
-        target_mid_bytes=target_mid_bytes,
-        gif_cfg=gif_cfg,
-        local_version=local_version,
-        stats_mgr_webp=stats_mgr_webp,
-        width=width,
-        height=height,
-        frame_count=frame_count,
-        init_size=init_size,
-        path=path,
-        started_at=started_at,
+    def _on_max_iterations():
+        _persist_max_iterations(
+            state=state,
+            target_mid_bytes=target_mid_bytes,
+            gif_cfg=gif_cfg,
+            local_version=local_version,
+            stats_mgr_webp=stats_mgr_webp,
+            width=width,
+            height=height,
+            frame_count=frame_count,
+            init_size=init_size,
+            path=path,
+            started_at=started_at,
+        )
+
+    run_iterative_search(
+        max_iterations=gif_cfg.webp.webp_animated_max_iterations,
+        run_step_fn=_run_step,
+        handle_outcome_fn=_handle_outcome,
+        on_max_iterations_fn=_on_max_iterations,
     )
