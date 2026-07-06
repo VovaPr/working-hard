@@ -6,8 +6,8 @@ from PIL import Image, ImageSequence
 
 from compressor_gif_runtime import GifRuntimeState
 from gif_balanced_steps import _run_balanced_iteration
-from gif_scale import _choose_initial_scale
 from gif_stats import CompressorStatsManager
+from gif_tuner import resolve_startup_scale
 
 
 def _build_debug_log(version, log_level, debug_log_fn=None):
@@ -68,7 +68,7 @@ def _build_runtime_context(*, decoded, gif_cfg, stats_file, version, debug_log):
     bias_factor = 1.1 + 0.05 * (palette_limit / 256.0)
 
     stats_mgr = CompressorStatsManager(stats_file, version)
-    scale, source = _choose_initial_scale(
+    scale, source = resolve_startup_scale(
         stats_mgr,
         palette_limit,
         width,

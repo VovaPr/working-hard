@@ -1,4 +1,4 @@
-# Compressor GIF Architecture (v2.0.62)
+# Compressor GIF Architecture (v2.0.63)
 
 This document describes the current compression architecture inside the Compressor folder.
 
@@ -11,6 +11,7 @@ This document describes the current compression architecture inside the Compress
 - Worker strategy is fixed for now: do not tune worker count; keep `max(1, (cpu_count // 2))`.
 - Performance experiments must focus on prediction/iteration logic, not worker parallelism.
 - Shared tuning helpers may live in common modules; format-specific tuning stays in adapters.
+- GIF and WEBP should use adapter layers that wrap shared tuning helpers.
 
 ## Quick Structure
 
