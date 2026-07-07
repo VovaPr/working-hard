@@ -184,6 +184,17 @@ def collect_images(root: Path, recursive: bool) -> list[Path]:
     ]
 
 
+def filter_existing_paths(paths: list[Path]) -> tuple[list[Path], int]:
+    existing: list[Path] = []
+    missing = 0
+    for p in paths:
+        if p.exists():
+            existing.append(p)
+        else:
+            missing += 1
+    return existing, missing
+
+
 def format_size(path: Path) -> str:
     try:
         return f"{path.stat().st_size / 1024:.1f} KB"
@@ -388,10 +399,15 @@ def main():
         if args.across_all:
             block_started = time.perf_counter()
             _write("Scope: all files together")
+            live_paths, missing_before_compare = filter_existing_paths(paths)
+            if missing_before_compare:
+                _write(
+                    f"[warn] Files changed since scan: missing={missing_before_compare}; compare continues with {len(live_paths)} file(s)"
+                )
             if args.visual:
-                groups, block_stats = find_visual_duplicates(paths, args.threshold, max(1, args.animation_samples))
+                groups, block_stats = find_visual_duplicates(live_paths, args.threshold, max(1, args.animation_samples))
             else:
-                groups, block_stats = find_exact_duplicates(paths)
+                groups, block_stats = find_exact_duplicates(live_paths)
             _write(f"Block compare_hashes: {_fmt_seconds(block_stats['hash_seconds'])}")
             _write(f"Block compare_grouping: {_fmt_seconds(block_stats['grouping_seconds'])}")
 
@@ -446,10 +462,21 @@ def main():
                 _folder_progress(i, total_folders, folder)
                 print()
 
+                live_folder_paths, missing_before_compare = filter_existing_paths(folder_paths)
+                if missing_before_compare:
+                    _write(
+                        f"[warn] Folder {folder} changed since scan: missing={missing_before_compare}; compare continues with {len(live_folder_paths)} file(s)"
+                    )
+                if not live_folder_paths:
+                    _write(
+                        f"[timing] Folder {folder} | hashes=0.00s grouping=0.00s total={_fmt_seconds(time.perf_counter() - folder_started)}"
+                    )
+                    continue
+
                 if args.visual:
-                    groups, block_stats = find_visual_duplicates(folder_paths, args.threshold, max(1, args.animation_samples))
+                    groups, block_stats = find_visual_duplicates(live_folder_paths, args.threshold, max(1, args.animation_samples))
                 else:
-                    groups, block_stats = find_exact_duplicates(folder_paths)
+                    groups, block_stats = find_exact_duplicates(live_folder_paths)
 
                 pairs = groups_to_pairs(groups)
                 if not pairs:
