@@ -30,7 +30,7 @@ from collections import defaultdict
 from pathlib import Path
 
 IMAGE_EXTENSIONS = {".gif", ".png", ".jpg", ".jpeg", ".webp", ".bmp", ".tiff", ".tif"}
-DEFAULT_ANIMATION_SAMPLES = 12
+DEFAULT_ANIMATION_SAMPLES = 8
 LOG_PREFIX = ""
 
 
@@ -311,7 +311,7 @@ def main():
     parser.add_argument("--threshold", type=int, default=6,
                         help="pHash distance threshold for --visual (default: 6, range 0-64)")
     parser.add_argument("--animation-samples", type=int, default=DEFAULT_ANIMATION_SAMPLES,
-                        help="Sample this many frames across animated GIF/WEBP in --visual mode (default: 12)")
+                        help=f"Sample this many frames across animated GIF/WEBP in --visual mode (default: {DEFAULT_ANIMATION_SAMPLES})")
     parser.add_argument("--no-recursive", action="store_true", default=False,
                         help="Do not recurse into subdirectories")
     parser.add_argument("--per-top-level", action="store_true", default=False,
