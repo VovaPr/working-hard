@@ -21,6 +21,7 @@ Usage:
 
 import argparse
 import hashlib
+import re
 import sys
 import time
 from datetime import datetime
@@ -30,6 +31,27 @@ from pathlib import Path
 
 IMAGE_EXTENSIONS = {".gif", ".png", ".jpg", ".jpeg", ".webp", ".bmp", ".tiff", ".tif"}
 DEFAULT_ANIMATION_SAMPLES = 12
+LOG_PREFIX = ""
+
+
+def _with_prefix(message: str) -> str:
+    if not LOG_PREFIX:
+        return message
+    if message.startswith("\r"):
+        return "\r" + LOG_PREFIX + message[1:]
+    return f"{LOG_PREFIX}{message}"
+
+
+def _resolve_compressor_version_prefix() -> str:
+    compressor_file = Path(__file__).resolve().parents[1] / "Compressor.py"
+    try:
+        text = compressor_file.read_text(encoding="utf-8", errors="ignore")
+        match = re.search(r'^APP_VERSION\s*=\s*"([^\"]+)"', text, flags=re.MULTILINE)
+        if match:
+            return f"{match.group(1)} | "
+    except OSError:
+        pass
+    return ""
 
 
 def sha256_of(path: Path) -> str:
@@ -79,7 +101,7 @@ def phash_of(path: Path, animation_samples: int):
 def _progress(i: int, total: int, path: Path):
     pct = i / total * 100
     name = path.name[:50].ljust(50)
-    print(f"\r  [{pct:5.1f}%] {i}/{total}  {name}", end="", flush=True)
+    print(_with_prefix(f"\r  [{pct:5.1f}%] {i}/{total}  {name}"), end="", flush=True)
 
 
 def _folder_progress(i: int, total: int, folder: Path):
@@ -87,7 +109,7 @@ def _folder_progress(i: int, total: int, folder: Path):
     name = str(folder)
     if len(name) > 70:
         name = "..." + name[-67:]
-    print(f"\r[folders] [{pct:5.1f}%] {i}/{total}  {name.ljust(70)}", end="", flush=True)
+    print(_with_prefix(f"\r[folders] [{pct:5.1f}%] {i}/{total}  {name.ljust(70)}"), end="", flush=True)
 
 
 def find_exact_duplicates(paths: list[Path]) -> list[list[Path]]:
@@ -99,7 +121,7 @@ def find_exact_duplicates(paths: list[Path]) -> list[list[Path]]:
         try:
             groups[sha256_of(p)].append(p)
         except OSError as e:
-            print(f"\n  [skip] {p}: {e}")
+            print(_with_prefix(f"\n  [skip] {p}: {e}"))
     print()
     hash_seconds = time.perf_counter() - hash_started
 
@@ -132,7 +154,7 @@ def find_visual_duplicates(paths: list[Path], threshold: int, animation_samples:
         try:
             hashes.append((phash_of(p, animation_samples), p))
         except Exception as e:
-            print(f"\n  [skip] {p}: {e}")
+            print(_with_prefix(f"\n  [skip] {p}: {e}"))
     print()
     hash_seconds = time.perf_counter() - hash_started
 
@@ -148,14 +170,14 @@ def find_visual_duplicates(paths: list[Path], threshold: int, animation_samples:
 
     grouping_started = time.perf_counter()
     n = len(hashes)
-    print(f"  Grouping {n} visual signatures...")
+    print(_with_prefix(f"  Grouping {n} visual signatures..."))
     used: set[int] = set()
     groups: list[list[Path]] = []
     for i in range(n):
         if i in used:
             continue
         if i % 500 == 0:
-            print(f"\r  Grouping {i}/{n} ({i*100//n}%) groups={len(groups)} ...", end="", flush=True)
+            print(_with_prefix(f"\r  Grouping {i}/{n} ({i*100//n}%) groups={len(groups)} ..."), end="", flush=True)
 
         signature_i, _ = hashes[i]
         matches: list[int] = []
@@ -171,7 +193,7 @@ def find_visual_duplicates(paths: list[Path], threshold: int, animation_samples:
             used.update(group_indices)
             groups.append([hashes[j][1] for j in group_indices])
 
-    print(f"\r  Grouping done. Found {len(groups)} group(s).          ")
+    print(_with_prefix(f"\r  Grouping done. Found {len(groups)} group(s).          "))
     grouping_seconds = time.perf_counter() - grouping_started
     return groups, {"hash_seconds": hash_seconds, "grouping_seconds": grouping_seconds}
 
@@ -279,6 +301,7 @@ def apply_delete_plan(plans: list[tuple[Path, Path]]) -> tuple[int, int, list[st
 
 
 def main():
+    global LOG_PREFIX
     parser = argparse.ArgumentParser(description="Find duplicate image files.")
     parser.add_argument("directory", help="Root directory to scan")
     parser.add_argument("--exact", action="store_true", default=False,
@@ -317,15 +340,18 @@ def main():
 
     out_path = resolve_output_path(args.output) if args.output else None
     writer = open(out_path, "w", encoding="utf-8") if out_path else None
+    LOG_PREFIX = _resolve_compressor_version_prefix()
 
     def _write(line: str):
         if writer is not None:
-            writer.write(line + "\n")
+            writer.write(_with_prefix(line) + "\n")
         else:
-            print(line)
+            print(_with_prefix(line))
 
     def _fmt_seconds(seconds: float) -> str:
-        return f"{seconds:.2f}s"
+        minutes = int(seconds // 60)
+        remaining_seconds = seconds - minutes * 60
+        return f"{minutes}m {remaining_seconds:.2f}s"
 
     run_started_at = datetime.now()
     run_started_perf = time.perf_counter()
@@ -553,7 +579,7 @@ def main():
             writer.close()
 
     if out_path:
-        print(f"Results written to: {out_path}")
+        print(_with_prefix(f"Results written to: {out_path}"))
 
 
 if __name__ == "__main__":
