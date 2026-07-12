@@ -42,6 +42,7 @@ def scan_media_candidates(root_folder_path, target_size, min_process_size_mb, ru
     static_webp_paths = []
     gif_paths = []
     animated_webp_paths = []
+    mp4_paths = []
     started_at = time.time()
 
     files = []
@@ -55,6 +56,10 @@ def scan_media_candidates(root_folder_path, target_size, min_process_size_mb, ru
             size_mb = os.path.getsize(file_path) / (1024 * 1024)
             if size_mb > min_process_size_mb:
                 gif_paths.append(file_path)
+            continue
+
+        if lower.endswith(".mp4"):
+            mp4_paths.append(file_path)
             continue
 
         if lower.endswith(".png"):
@@ -91,4 +96,5 @@ def scan_media_candidates(root_folder_path, target_size, min_process_size_mb, ru
     run_metrics["static_webp_candidates"] = len(static_webp_paths)
     run_metrics["gif_candidates"] = len(gif_paths)
     run_metrics["animated_webp_candidates"] = len(animated_webp_paths)
-    return png_paths, jpg_paths, static_webp_paths, gif_paths, animated_webp_paths
+    run_metrics["mp4_candidates"] = len(mp4_paths)
+    return png_paths, jpg_paths, static_webp_paths, gif_paths, animated_webp_paths, mp4_paths

@@ -53,7 +53,7 @@ def _count_files_in_dir(root_folder):
 
 def run_pipeline(api: PipelineApi):
     _phase_if_debug(api, "core.scan", "Start media scan")
-    png_paths, jpg_paths, static_webp_paths, gif_paths, animated_webp_paths = api.scan_media_candidates(api.root_folder_path)
+    png_paths, jpg_paths, static_webp_paths, gif_paths, animated_webp_paths, mp4_paths = api.scan_media_candidates(api.root_folder_path)
 
     _phase_if_debug(api, "core.images", "Start static image processing")
     images_started_at = time.time()
@@ -63,7 +63,7 @@ def run_pipeline(api: PipelineApi):
 
     _phase_if_debug(api, "core.gif", "Start GIF/animated WEBP processing")
     gifs_started_at = time.time()
-    api.process_gifs(gif_paths, animated_webp_paths)
+    api.process_gifs(gif_paths, animated_webp_paths, mp4_paths)
     gifs_elapsed = time.time() - gifs_started_at
     _phase_if_debug(api, "core.gif", f"Done in {gifs_elapsed:.2f}s")
 
@@ -73,7 +73,8 @@ def run_pipeline(api: PipelineApi):
         f"jpg={api.run_metrics['jpg_candidates']}, "
         f"static_webp={api.run_metrics['static_webp_candidates']}, "
         f"gif={api.run_metrics['gif_candidates']}, "
-        f"animated_webp={api.run_metrics['animated_webp_candidates']})"
+        f"animated_webp={api.run_metrics['animated_webp_candidates']}, "
+        f"mp4={api.run_metrics['mp4_candidates']})"
     )
 
     try:
