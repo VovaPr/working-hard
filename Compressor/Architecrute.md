@@ -1,4 +1,4 @@
-# Compressor GIF Architecture (v2.0.64)
+# Compressor GIF Architecture (v2.0.65)
 
 This document describes the current compression architecture inside the Compressor folder.
 

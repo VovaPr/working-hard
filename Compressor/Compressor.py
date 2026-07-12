@@ -7,7 +7,7 @@ What this compressor does:
 """
 
 # Single source of truth for the application version.
-APP_VERSION = "2.0.64"
+APP_VERSION = "2.0.65"
 
 # Standard library imports
 import os, sys, time, subprocess
@@ -100,6 +100,18 @@ class GIFGuardConfig:
 
 
 @dataclass(frozen=True)
+class MP4GifConfig:
+    # Profiles: fast (default) or quality
+    profile: str = "fast"
+    fast_fps: int = 8
+    fast_width: int = 540
+    fast_scale_flags: str = "bicubic"
+    quality_fps: int = 12
+    quality_width: int = 720
+    quality_scale_flags: str = "lanczos"
+
+
+@dataclass(frozen=True)
 class WEBPConfig:
     webp_animated_max_iterations: int = 12
     webp_static_max_iterations: int = 12
@@ -146,6 +158,7 @@ class GIFConfig:
     sample_probe: GIFSampleProbeConfig = field(default_factory=GIFSampleProbeConfig)
     skip: GIFSkipConfig = field(default_factory=GIFSkipConfig)
     guard: GIFGuardConfig = field(default_factory=GIFGuardConfig)
+    mp4_gif: MP4GifConfig = field(default_factory=MP4GifConfig)
     webp: WEBPConfig = field(default_factory=WEBPConfig)
 
 

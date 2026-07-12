@@ -36,7 +36,7 @@ def _describe_ffmpeg_source(ffmpeg_exe):
     return os.path.basename(ffmpeg_exe) or "ffmpeg.exe"
 
 
-def _convert_mp4_to_gif(mp4_path, *, version, ffmpeg_exe, fps=12, width=720):
+def _convert_mp4_to_gif(mp4_path, *, version, ffmpeg_exe, fps, width, scale_flags):
     output_gif = os.path.splitext(mp4_path)[0] + ".gif"
     if os.path.exists(output_gif):
         print(f"{version} | [mp4.gif] skip (exists): {output_gif}")
@@ -52,7 +52,7 @@ def _convert_mp4_to_gif(mp4_path, *, version, ffmpeg_exe, fps=12, width=720):
             "-i",
             mp4_path,
             "-vf",
-            f"fps={fps},scale={width}:-1:flags=lanczos,palettegen",
+            f"fps={fps},scale={width}:-1:flags={scale_flags},palettegen",
             palette_path,
         ]
         result = subprocess.run(palettegen, capture_output=True, text=True, check=False)
@@ -68,7 +68,7 @@ def _convert_mp4_to_gif(mp4_path, *, version, ffmpeg_exe, fps=12, width=720):
             "-i",
             palette_path,
             "-lavfi",
-            f"fps={fps},scale={width}:-1:flags=lanczos[x];[x][1:v]paletteuse",
+            f"fps={fps},scale={width}:-1:flags={scale_flags}[x];[x][1:v]paletteuse",
             output_gif,
         ]
         result = subprocess.run(paletteuse, capture_output=True, text=True, check=False)
@@ -106,10 +106,29 @@ def process_gifs(
         if not ffmpeg_exe:
             print(f"{version} | [mp4.gif] ffmpeg not found; skipping {len(mp4_paths)} MP4 file(s)")
         else:
+            profile = str(getattr(gif_cfg.mp4_gif, "profile", "fast")).strip().lower()
+            if profile == "quality":
+                fps = int(getattr(gif_cfg.mp4_gif, "quality_fps", 12))
+                width = int(getattr(gif_cfg.mp4_gif, "quality_width", 720))
+                scale_flags = str(getattr(gif_cfg.mp4_gif, "quality_scale_flags", "lanczos"))
+            else:
+                profile = "fast"
+                fps = int(getattr(gif_cfg.mp4_gif, "fast_fps", 8))
+                width = int(getattr(gif_cfg.mp4_gif, "fast_width", 540))
+                scale_flags = str(getattr(gif_cfg.mp4_gif, "fast_scale_flags", "bicubic"))
+
             print(f"{version} | [mp4.gif] ffmpeg={_describe_ffmpeg_source(ffmpeg_exe)}")
+            print(f"{version} | [mp4.gif] profile={profile} fps={fps} width={width} scale={scale_flags}")
             print(f"{version} | [mp4.gif] converting {len(mp4_paths)} MP4 file(s)")
             for mp4_path in mp4_paths:
-                gif_out = _convert_mp4_to_gif(mp4_path, version=version, ffmpeg_exe=ffmpeg_exe)
+                gif_out = _convert_mp4_to_gif(
+                    mp4_path,
+                    version=version,
+                    ffmpeg_exe=ffmpeg_exe,
+                    fps=fps,
+                    width=width,
+                    scale_flags=scale_flags,
+                )
                 if not gif_out:
                     continue
 
