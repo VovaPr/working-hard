@@ -8,11 +8,28 @@ import tempfile
 from gif_main_pipeline import balanced_compress_gif
 
 
-def _ffmpeg_exists():
-    return shutil.which("ffmpeg") is not None
+def _resolve_ffmpeg_executable():
+    from pathlib import Path
+
+    ffmpeg_from_path = shutil.which("ffmpeg")
+    if ffmpeg_from_path:
+        return ffmpeg_from_path
+
+    local_app_data = os.environ.get("LOCALAPPDATA")
+    if local_app_data:
+        winget_root = Path(local_app_data) / "Microsoft" / "WinGet" / "Packages"
+        if winget_root.exists():
+            candidates = sorted(
+                winget_root.glob("Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe/**/bin/ffmpeg.exe"),
+                reverse=True,
+            )
+            if candidates:
+                return str(candidates[0])
+
+    return None
 
 
-def _convert_mp4_to_gif(mp4_path, *, version, fps=12, width=720):
+def _convert_mp4_to_gif(mp4_path, *, version, ffmpeg_exe, fps=12, width=720):
     output_gif = os.path.splitext(mp4_path)[0] + ".gif"
     if os.path.exists(output_gif):
         print(f"{version} | [mp4.gif] skip (exists): {output_gif}")
@@ -23,7 +40,7 @@ def _convert_mp4_to_gif(mp4_path, *, version, fps=12, width=720):
 
     try:
         palettegen = [
-            "ffmpeg",
+            ffmpeg_exe,
             "-y",
             "-i",
             mp4_path,
@@ -37,7 +54,7 @@ def _convert_mp4_to_gif(mp4_path, *, version, fps=12, width=720):
             return None
 
         paletteuse = [
-            "ffmpeg",
+            ffmpeg_exe,
             "-y",
             "-i",
             mp4_path,
@@ -78,12 +95,14 @@ def process_gifs(
     gif_queue = list(gif_paths)
 
     if mp4_paths:
-        if not _ffmpeg_exists():
+        ffmpeg_exe = _resolve_ffmpeg_executable()
+        if not ffmpeg_exe:
             print(f"{version} | [mp4.gif] ffmpeg not found; skipping {len(mp4_paths)} MP4 file(s)")
         else:
+            print(f"{version} | [mp4.gif] ffmpeg={ffmpeg_exe}")
             print(f"{version} | [mp4.gif] converting {len(mp4_paths)} MP4 file(s)")
             for mp4_path in mp4_paths:
-                gif_out = _convert_mp4_to_gif(mp4_path, version=version)
+                gif_out = _convert_mp4_to_gif(mp4_path, version=version, ffmpeg_exe=ffmpeg_exe)
                 if not gif_out:
                     continue
 
