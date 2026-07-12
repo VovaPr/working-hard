@@ -7,7 +7,7 @@ What this compressor does:
 """
 
 # Single source of truth for the application version.
-APP_VERSION = "2.0.66"
+APP_VERSION = "2.0.67"
 
 # Standard library imports
 import os, sys, time, subprocess
@@ -103,6 +103,7 @@ class GIFGuardConfig:
 class MP4GifConfig:
     # Profiles: fast (default) or quality
     profile: str = "fast"
+    delete_source_after_success: bool = True
     fast_fps: int = 8
     fast_width: int = 540
     fast_scale_flags: str = "bicubic"

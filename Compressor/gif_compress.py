@@ -104,6 +104,16 @@ def _convert_mp4_to_gif(mp4_path, *, version, ffmpeg_exe, fps, width, scale_flag
             pass
 
 
+def _try_delete_source_mp4(mp4_path, *, version):
+    try:
+        os.remove(mp4_path)
+        print(f"{version} | [mp4.gif] deleted source: {mp4_path}")
+        return True
+    except OSError as exc:
+        print(f"{version} | [mp4.gif] source delete failed: {mp4_path} | {exc}")
+        return False
+
+
 def process_gifs(
     gif_paths,
     animated_webp_paths,
@@ -118,6 +128,7 @@ def process_gifs(
 ):
     worked = False
     gif_queue = list(gif_paths)
+    gif_seen = set(gif_queue)
 
     if mp4_paths:
         ffmpeg_exe = _resolve_ffmpeg_executable()
@@ -141,6 +152,9 @@ def process_gifs(
             converted_count = 0
             exists_count = 0
             failed_count = 0
+            deleted_source_count = 0
+            delete_failed_count = 0
+            delete_after_success = bool(getattr(gif_cfg.mp4_gif, "delete_source_after_success", True))
             for mp4_path in mp4_paths:
                 convert_result = _convert_mp4_to_gif(
                     mp4_path,
@@ -171,14 +185,23 @@ def process_gifs(
                 # Route converted GIF into existing heavy-compression stage only when oversized.
                 try:
                     size_mb = os.path.getsize(gif_out) / (1024 * 1024)
-                    if size_mb > gif_cfg.targets.min_process_size_mb:
+                    if size_mb > gif_cfg.targets.min_process_size_mb and gif_out not in gif_seen:
                         gif_queue.append(gif_out)
+                        gif_seen.add(gif_out)
                 except OSError:
                     pass
 
+                if delete_after_success:
+                    deleted = _try_delete_source_mp4(mp4_path, version=version)
+                    if deleted:
+                        deleted_source_count += 1
+                    else:
+                        delete_failed_count += 1
+
             print(
                 f"{version} | [mp4.gif] summary: converted={converted_count} "
-                f"exists={exists_count} failed={failed_count}"
+                f"exists={exists_count} failed={failed_count} "
+                f"source_deleted={deleted_source_count} source_delete_failed={delete_failed_count}"
             )
 
     for file_path in gif_queue:
