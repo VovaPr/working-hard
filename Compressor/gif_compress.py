@@ -4,6 +4,7 @@ import os
 import shutil
 import subprocess
 import tempfile
+import time
 
 from gif_main_pipeline import balanced_compress_gif
 
@@ -40,7 +41,13 @@ def _convert_mp4_to_gif(mp4_path, *, version, ffmpeg_exe, fps, width, scale_flag
     output_gif = os.path.splitext(mp4_path)[0] + ".gif"
     if os.path.exists(output_gif):
         print(f"{version} | [mp4.gif] skip (exists): {output_gif}")
-        return output_gif
+        return {"status": "exists", "output_gif": output_gif}
+
+    started_at = time.time()
+    try:
+        mp4_size_mb = os.path.getsize(mp4_path) / (1024 * 1024)
+    except OSError:
+        mp4_size_mb = None
 
     with tempfile.NamedTemporaryFile(prefix="palette_", suffix=".png", delete=False) as tmp:
         palette_path = tmp.name
@@ -58,7 +65,7 @@ def _convert_mp4_to_gif(mp4_path, *, version, ffmpeg_exe, fps, width, scale_flag
         result = subprocess.run(palettegen, capture_output=True, text=True, check=False)
         if result.returncode != 0:
             print(f"{version} | [mp4.gif] palettegen failed: {mp4_path}")
-            return None
+            return {"status": "failed", "output_gif": None}
 
         paletteuse = [
             ffmpeg_exe,
@@ -74,10 +81,21 @@ def _convert_mp4_to_gif(mp4_path, *, version, ffmpeg_exe, fps, width, scale_flag
         result = subprocess.run(paletteuse, capture_output=True, text=True, check=False)
         if result.returncode != 0:
             print(f"{version} | [mp4.gif] paletteuse failed: {mp4_path}")
-            return None
+            return {"status": "failed", "output_gif": None}
 
-        print(f"{version} | [mp4.gif] converted: {mp4_path} -> {output_gif}")
-        return output_gif
+        try:
+            gif_size_mb = os.path.getsize(output_gif) / (1024 * 1024)
+        except OSError:
+            gif_size_mb = None
+        elapsed = time.time() - started_at
+        if mp4_size_mb is not None and gif_size_mb is not None:
+            print(
+                f"{version} | [mp4.gif] ✅ Success: {mp4_size_mb:.2f} MB -> {gif_size_mb:.2f} MB "
+                f"({elapsed:.2f} sec)"
+            )
+        else:
+            print(f"{version} | [mp4.gif] converted: {mp4_path} -> {output_gif}")
+        return {"status": "converted", "output_gif": output_gif}
     finally:
         try:
             if os.path.exists(palette_path):
@@ -120,8 +138,11 @@ def process_gifs(
             print(f"{version} | [mp4.gif] ffmpeg={_describe_ffmpeg_source(ffmpeg_exe)}")
             print(f"{version} | [mp4.gif] profile={profile} fps={fps} width={width} scale={scale_flags}")
             print(f"{version} | [mp4.gif] converting {len(mp4_paths)} MP4 file(s)")
+            converted_count = 0
+            exists_count = 0
+            failed_count = 0
             for mp4_path in mp4_paths:
-                gif_out = _convert_mp4_to_gif(
+                convert_result = _convert_mp4_to_gif(
                     mp4_path,
                     version=version,
                     ffmpeg_exe=ffmpeg_exe,
@@ -129,7 +150,22 @@ def process_gifs(
                     width=width,
                     scale_flags=scale_flags,
                 )
+                if not convert_result:
+                    failed_count += 1
+                    continue
+
+                status = convert_result.get("status")
+                gif_out = convert_result.get("output_gif")
+                if status == "converted":
+                    converted_count += 1
+                elif status == "exists":
+                    exists_count += 1
+                else:
+                    failed_count += 1
+                    continue
+
                 if not gif_out:
+                    failed_count += 1
                     continue
 
                 # Route converted GIF into existing heavy-compression stage only when oversized.
@@ -139,6 +175,11 @@ def process_gifs(
                         gif_queue.append(gif_out)
                 except OSError:
                     pass
+
+            print(
+                f"{version} | [mp4.gif] summary: converted={converted_count} "
+                f"exists={exists_count} failed={failed_count}"
+            )
 
     for file_path in gif_queue:
         worked = True
