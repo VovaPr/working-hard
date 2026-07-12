@@ -29,6 +29,13 @@ def _resolve_ffmpeg_executable():
     return None
 
 
+def _describe_ffmpeg_source(ffmpeg_exe):
+    lower = ffmpeg_exe.lower()
+    if "winget" in lower:
+        return "ffmpeg.exe (winget)"
+    return os.path.basename(ffmpeg_exe) or "ffmpeg.exe"
+
+
 def _convert_mp4_to_gif(mp4_path, *, version, ffmpeg_exe, fps=12, width=720):
     output_gif = os.path.splitext(mp4_path)[0] + ".gif"
     if os.path.exists(output_gif):
@@ -99,7 +106,7 @@ def process_gifs(
         if not ffmpeg_exe:
             print(f"{version} | [mp4.gif] ffmpeg not found; skipping {len(mp4_paths)} MP4 file(s)")
         else:
-            print(f"{version} | [mp4.gif] ffmpeg={ffmpeg_exe}")
+            print(f"{version} | [mp4.gif] ffmpeg={_describe_ffmpeg_source(ffmpeg_exe)}")
             print(f"{version} | [mp4.gif] converting {len(mp4_paths)} MP4 file(s)")
             for mp4_path in mp4_paths:
                 gif_out = _convert_mp4_to_gif(mp4_path, version=version, ffmpeg_exe=ffmpeg_exe)
