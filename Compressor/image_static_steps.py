@@ -127,7 +127,8 @@ def _find_best_quality_buffer(image, size_limit, q_min, q_max):
 
 def compress_until_under_target(path, version, target_size):
     started_at = time.time()
-    min_quality_before_resize = 80
+    min_quality_before_resize = 50
+    target_quality_floor = 80
 
     try:
         with Image.open(path) as img:
@@ -164,17 +165,37 @@ def compress_until_under_target(path, version, target_size):
                     print(f"{version} | Finished in {elapsed:.2f} sec")
                     return
 
-                min_q_buf = _encode_jpeg_buffer(img, min_quality_before_resize)
-                min_q_size = len(min_q_buf.getvalue())
-                correction = (target_size / max(min_q_size, 1)) ** 0.5
-                correction = max(0.88, min(0.98, correction))
+                floor_quality = max(min_quality_before_resize, min(target_quality_floor, 100))
+                floor_buf = _encode_jpeg_buffer(img, floor_quality)
+                floor_size = len(floor_buf.getvalue())
+
+                if floor_size <= target_size:
+                    best_quality, best_buf, best_size = _find_best_quality_buffer(
+                        img,
+                        target_size,
+                        min_quality_before_resize,
+                        floor_quality,
+                    )
+                    if best_buf is not None:
+                        with open(path, "wb") as f:
+                            f.write(best_buf.getvalue())
+                        elapsed = time.time() - started_at
+                        print(
+                            f"{version} | ✅ Success: {init_size/1024:.2f} KB -> {best_size/1024:.2f} KB "
+                            f"| Quality={best_quality} | Resized {resize_count} times"
+                        )
+                        print(f"{version} | Finished in {elapsed:.2f} sec")
+                        return
+
+                correction = (target_size / max(floor_size, 1)) ** 0.5
+                correction = max(0.82, min(0.97, correction))
                 new_w = max(1, int(img.width * correction))
                 new_h = max(1, int(img.height * correction))
                 img = img.resize((new_w, new_h), Image.LANCZOS)
                 resize_count += 1
                 print(
                     f"{version} | Step {resize_count} | Resized to {new_w}x{new_h}, "
-                    f"q{min_quality_before_resize} size={min_q_size/1024:.2f} KB"
+                    f"q{floor_quality} size={floor_size/1024:.2f} KB"
                 )
 
     except UnidentifiedImageError:
