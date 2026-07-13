@@ -38,9 +38,19 @@ def _choose_initial_scale(stats_mgr, palette_limit, width, height, total_frames,
     if delta_avg is not None:
         predicted_medcut = init_size + delta_avg * bias_factor
         scale_from_delta = (target_mid / predicted_medcut) ** 0.5
-        return scale_from_delta * 0.97, "delta_avg (conservative)"
+        chosen_scale = scale_from_delta * 0.97
+        return _apply_long_animation_bias(chosen_scale, total_frames, init_size), "delta_avg (conservative)"
     scale_from_formula = (target_mid / (init_size * bias_factor)) ** 0.5
-    return scale_from_formula * 0.95, "formula (conservative)"
+    chosen_scale = scale_from_formula * 0.95
+    return _apply_long_animation_bias(chosen_scale, total_frames, init_size), "formula (conservative)"
+
+
+def _apply_long_animation_bias(scale, total_frames, init_size):
+    if total_frames >= 400 and init_size >= 20:
+        return scale * 0.88
+    if total_frames >= 250 and init_size >= 50:
+        return scale * 0.93
+    return scale
 
 
 def _next_scale(scale, low_scale, high_scale, med_cache, target_mid, max_step_ratio):

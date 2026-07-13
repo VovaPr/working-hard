@@ -43,6 +43,9 @@ def _try_hard_skip(
         suggested_scale = state.scale * (target_mid / fast_size) ** 0.5 if fast_size > 0 else state.scale
         suggested_scale *= 0.92
 
+    if total_frames >= 400:
+        suggested_scale *= 0.90
+
     suggested_scale = ScaleStrategy.apply_step_cap(
         state.scale,
         suggested_scale,
