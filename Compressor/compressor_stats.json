@@ -4861,6 +4861,21 @@
       "resize_count": 2,
       "final_width": 612,
       "final_height": 816
+    },
+    {
+      "width": 1216,
+      "height": 1728,
+      "frames": 291,
+      "init_size_mb": 15.57,
+      "quality": 73,
+      "method": 2,
+      "result_size_mb": 14.6,
+      "encode_sec": 90.82,
+      "timestamp": 1784177921.5740876,
+      "count": 1,
+      "resize_count": 2,
+      "final_width": 1097,
+      "final_height": 1558
     }
   ]
 }
