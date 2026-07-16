@@ -3,6 +3,21 @@
 from compression_tuner import frame_adjusted_timeout, seed_ratio_quality
 
 
+def _seed_default_quality(*, init_size, target_mid_bytes, target_max_mb):
+    # For files already near the upper bound, avoid starting too close to q=95.
+    # This reduces first-step overshoot and converges faster.
+    target_max_bytes = target_max_mb * 1024 * 1024
+    near_target = init_size > 0 and target_max_bytes > 0 and (init_size / target_max_bytes) <= 1.25
+    capped_max_quality = 88 if near_target else 95
+    return seed_ratio_quality(
+        init_size_bytes=init_size,
+        target_mid_bytes=target_mid_bytes,
+        min_quality=60,
+        max_quality=capped_max_quality,
+        bias=1.02,
+    )
+
+
 def resolve_startup_quality(
     stats_mgr_webp,
     width,
@@ -33,12 +48,10 @@ def resolve_startup_quality(
         known_result_size_mb = startup_plan.get("result_size_mb")
         startup_pre_resize = startup_plan.get("pre_resize")
     elif stats_mgr_webp and width and height and frame_count:
-        quality = seed_ratio_quality(
-            init_size_bytes=init_size,
+        quality = _seed_default_quality(
+            init_size=init_size,
             target_mid_bytes=target_mid_bytes,
-            min_quality=60,
-            max_quality=95,
-            bias=1.02,
+            target_max_mb=gif_cfg.targets.target_max_mb,
         )
         source = (
             f"default (no webp match, records={stats_mgr_webp.stats_count()}, "
@@ -46,12 +59,10 @@ def resolve_startup_quality(
         )
         direct_final_from_stats = False
     else:
-        quality = seed_ratio_quality(
-            init_size_bytes=init_size,
+        quality = _seed_default_quality(
+            init_size=init_size,
             target_mid_bytes=target_mid_bytes,
-            min_quality=60,
-            max_quality=95,
-            bias=1.02,
+            target_max_mb=gif_cfg.targets.target_max_mb,
         )
         source = f"default (stats unavailable, ratio-seeded q={quality})"
         direct_final_from_stats = False

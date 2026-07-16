@@ -12,13 +12,13 @@ def _extrapolate_full_size(probe_size, sample_n, frame_count, bias):
 def _compute_corrected_quality(
     quality,
     predicted_full,
-    target_mid_bytes,
+    target_bytes,
     max_upward_factor,
     max_upward_steps,
 ):
     if predicted_full <= 0:
         return None, None, False
-    correction = (target_mid_bytes / predicted_full) ** 0.5
+    correction = (target_bytes / predicted_full) ** 0.5
     raw_quality = max(45, min(100, int(quality * correction)))
     corrected_quality = raw_quality
     was_capped = False
@@ -30,7 +30,20 @@ def _compute_corrected_quality(
     return corrected_quality, raw_quality, was_capped
 
 
-def run_webp_sample_probe(*, frames, durations, quality, target_mid_bytes, frame_count, local_version, gif_cfg, save_webp_frames):
+def run_webp_sample_probe(
+    *,
+    frames,
+    durations,
+    quality,
+    target_mid_bytes,
+    target_max_bytes,
+    init_size,
+    probe_method,
+    frame_count,
+    local_version,
+    gif_cfg,
+    save_webp_frames,
+):
     """Encode a small evenly-spaced subset of frames, extrapolate full size, return calibrated quality.
 
     Returns the corrected quality (int) if it differs from the input quality by >= 3 units,
@@ -48,7 +61,7 @@ def run_webp_sample_probe(*, frames, durations, quality, target_mid_bytes, frame
 
     probe_start = time.time()
     try:
-        probe_buf = save_webp_frames(sample_frames, sample_durations, quality, method=2)
+        probe_buf = save_webp_frames(sample_frames, sample_durations, quality, method=probe_method)
     except Exception as e:
         print(f"{local_version} | [webp.probe] | failed: {e}")
         return None, None
@@ -56,10 +69,14 @@ def run_webp_sample_probe(*, frames, durations, quality, target_mid_bytes, frame
 
     probe_size = len(probe_buf.getvalue())
     predicted_full = _extrapolate_full_size(probe_size, sample_n, frame_count, gif_cfg.webp.webp_sample_probe_bias)
+    # Prefer target mid, but never calibrate upward toward a size that exceeds source.
+    source_guard = init_size * 0.97 if init_size and init_size > 0 else target_mid_bytes
+    target_bytes = min(target_mid_bytes, target_max_bytes, source_guard)
+
     corrected_quality, raw_quality, was_capped = _compute_corrected_quality(
         quality,
         predicted_full,
-        target_mid_bytes,
+        target_bytes,
         gif_cfg.webp.webp_sample_probe_max_upward_factor,
         gif_cfg.webp.webp_sample_probe_max_upward_steps,
     )
@@ -69,7 +86,7 @@ def run_webp_sample_probe(*, frames, durations, quality, target_mid_bytes, frame
     print(
         f"{local_version} | [webp.probe] | {sample_n}/{frame_count} frames "
         f"| probe={probe_size / 1024:.1f} KB predicted={predicted_full / 1024:.1f} KB "
-        f"| q={quality} -> q={corrected_quality}{cap_note} | elapsed={probe_elapsed:.1f}s"
+        f"| q={quality} -> q={corrected_quality}{cap_note} | method={probe_method} | elapsed={probe_elapsed:.1f}s"
     )
 
     if corrected_quality is None or abs(corrected_quality - quality) < 3:

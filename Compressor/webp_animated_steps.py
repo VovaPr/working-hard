@@ -468,15 +468,34 @@ def _resolve_next_quality(*, under_target_q, over_target_q, quality, effective_s
     return proposed_quality
 
 
-def _run_sample_probe_if_needed(*, state, frames, durations, target_mid_bytes, frame_count, local_version, gif_cfg):
+def _run_sample_probe_if_needed(
+    *,
+    state,
+    frames,
+    durations,
+    target_mid_bytes,
+    target_max_bytes,
+    init_size,
+    frame_count,
+    local_version,
+    gif_cfg,
+):
     """Run a cheap frame-subset probe to calibrate the initial quality when no stats profile exists."""
     if state["direct_final_from_stats"]:
         return
+    probe_method = (
+        state["webp_method_exploratory_fast"]
+        if state.get("can_use_exploratory_fast")
+        else state["webp_method"]
+    )
     corrected_quality, probe_observation = run_webp_sample_probe(
         frames=frames,
         durations=durations,
         quality=state["quality"],
         target_mid_bytes=target_mid_bytes,
+        target_max_bytes=target_max_bytes,
+        init_size=init_size,
+        probe_method=probe_method,
         frame_count=frame_count,
         local_version=local_version,
         gif_cfg=gif_cfg,

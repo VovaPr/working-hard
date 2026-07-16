@@ -50,6 +50,8 @@ def _compress_animated_webp(
         frames=state["frames"],
         durations=durations,
         target_mid_bytes=target_mid_bytes,
+        target_max_bytes=target_max_bytes,
+        init_size=init_size,
         frame_count=frame_count,
         local_version=local_version,
         gif_cfg=gif_cfg,
