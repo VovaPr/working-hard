@@ -13,12 +13,14 @@ def _compute_corrected_quality(
     quality,
     predicted_full,
     target_bytes,
+    quality_alpha,
     max_upward_factor,
     max_upward_steps,
 ):
     if predicted_full <= 0:
         return None, None, False
-    correction = (target_bytes / predicted_full) ** 0.5
+    alpha = max(0.2, float(quality_alpha or 2.0))
+    correction = (target_bytes / predicted_full) ** (1.0 / alpha)
     raw_quality = max(45, min(100, int(quality * correction)))
     corrected_quality = raw_quality
     was_capped = False
@@ -77,6 +79,7 @@ def run_webp_sample_probe(
         quality,
         predicted_full,
         target_bytes,
+        getattr(gif_cfg.webp, "webp_sample_probe_quality_alpha", 1.35),
         gif_cfg.webp.webp_sample_probe_max_upward_factor,
         gif_cfg.webp.webp_sample_probe_max_upward_steps,
     )
