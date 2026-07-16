@@ -7,7 +7,7 @@ What this compressor does:
 """
 
 # Single source of truth for the application version.
-APP_VERSION = "2.0.71"
+APP_VERSION = "2.0.72"
 
 # Standard library imports
 import os, sys, time, subprocess
@@ -134,6 +134,7 @@ class WEBPConfig:
     webp_animated_exploratory_fast_method: int = 1
     webp_animated_exploratory_fast_max_steps: int = 2
     webp_animated_exploratory_fast_min_frames: int = 120
+    webp_animated_exploratory_confirm_in_target: bool = False
     webp_animated_startup_min_count: int = 2
     webp_animated_max_seconds_per_frame: float = 0.52
     webp_sample_probe_enabled: bool = True

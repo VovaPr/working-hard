@@ -131,4 +131,7 @@ def resolve_runtime_settings(gif_cfg, frame_count, local_version, direct_final_f
         "can_use_direct_fast": can_use_direct_fast,
         "can_use_exploratory_fast": can_use_exploratory_fast,
         "exploratory_fast_max_steps": gif_cfg.webp.webp_animated_exploratory_fast_max_steps,
+        "exploratory_confirm_in_target": bool(
+            getattr(gif_cfg.webp, "webp_animated_exploratory_confirm_in_target", False)
+        ),
     }

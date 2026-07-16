@@ -72,6 +72,7 @@ def _compress_animated_webp(
             can_use_direct_fast=state["can_use_direct_fast"],
             can_use_exploratory_fast=state["can_use_exploratory_fast"],
             exploratory_fast_max_steps=state["exploratory_fast_max_steps"],
+            exploratory_confirm_in_target=state["exploratory_confirm_in_target"],
             target_min_bytes=target_min_bytes,
             target_max_bytes=target_max_bytes,
             effective_max_seconds=state["effective_max_seconds"],

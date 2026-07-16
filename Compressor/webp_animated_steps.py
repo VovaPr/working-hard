@@ -81,6 +81,7 @@ def _run_encode_step(
     can_use_direct_fast,
     can_use_exploratory_fast,
     exploratory_fast_max_steps,
+    exploratory_confirm_in_target,
     target_min_bytes,
     target_max_bytes,
     effective_max_seconds,
@@ -144,27 +145,33 @@ def _run_encode_step(
         and effective_method != webp_method
         and target_min_bytes <= effective_size <= target_max_bytes
     ):
-        print(
-            f"{local_version} | [webp.explore] | target hit on fast method={effective_method}; "
-            f"confirm with method={webp_method}"
-        )
-        confirm_start = time.time()
-        confirmed_buf, quality, _ = encode_with_fallback(
-            frames,
-            durations,
-            quality,
-            webp_method,
-            local_version,
-            _save_webp_frames,
-        )
-        if confirmed_buf is not None:
-            step_encode_elapsed += time.time() - confirm_start
-            effective_buf = confirmed_buf
-            effective_size = len(confirmed_buf.getvalue())
-            effective_method = webp_method
+        if not exploratory_confirm_in_target:
             print(
-                f"{local_version} | [webp.explore] | confirm result size={effective_size/1024:.2f} KB"
+                f"{local_version} | [webp.explore] | target hit on fast method={effective_method}; "
+                "accepting without confirm"
             )
+        else:
+            print(
+                f"{local_version} | [webp.explore] | target hit on fast method={effective_method}; "
+                f"confirm with method={webp_method}"
+            )
+            confirm_start = time.time()
+            confirmed_buf, quality, _ = encode_with_fallback(
+                frames,
+                durations,
+                quality,
+                webp_method,
+                local_version,
+                _save_webp_frames,
+            )
+            if confirmed_buf is not None:
+                step_encode_elapsed += time.time() - confirm_start
+                effective_buf = confirmed_buf
+                effective_size = len(confirmed_buf.getvalue())
+                effective_method = webp_method
+                print(
+                    f"{local_version} | [webp.explore] | confirm result size={effective_size/1024:.2f} KB"
+                )
 
     print(
         f"{local_version} | [webp.step] | step={step} | size={effective_size/1024:.2f} KB | encode={step_encode_elapsed:.2f}s"
@@ -521,6 +528,7 @@ def _build_animation_state(*, startup, frames):
         "can_use_direct_fast": startup["can_use_direct_fast"],
         "can_use_exploratory_fast": startup["can_use_exploratory_fast"],
         "exploratory_fast_max_steps": startup["exploratory_fast_max_steps"],
+        "exploratory_confirm_in_target": startup.get("exploratory_confirm_in_target", False),
         "under_target_q": None,
         "over_target_q": None,
         "observations": [],
