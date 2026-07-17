@@ -8,15 +8,15 @@ Two modes:
              Requires: pip install Pillow imagehash
 
 Usage:
-  python find_duplicates.py C:\path\to\images
-  python find_duplicates.py C:\path\to\images --visual
-  python find_duplicates.py C:\path\to\images --visual --threshold 8
-  python find_duplicates.py C:\path\to\images --output dupes.txt
-    python find_duplicates.py C:\path\to\images --visual --per-top-level
-    python find_duplicates.py C:\path\to\images --visual --per-folder
-  python find_duplicates.py C:\path\to\images --visual --across-all
-  python find_duplicates.py C:\path\to\images --visual --delete-older
-  python find_duplicates.py C:\path\to\images --visual --delete-older --dry-run-delete
+    python "c:\Git\working-hard\Compressor\duplicates\find_duplicates.py" C:\path\to\images
+    python "c:\Git\working-hard\Compressor\duplicates\find_duplicates.py" C:\path\to\images --visual
+    python "c:\Git\working-hard\Compressor\duplicates\find_duplicates.py" C:\path\to\images --visual --threshold 8
+    python "c:\Git\working-hard\Compressor\duplicates\find_duplicates.py" C:\path\to\images --output dupes.txt
+        python "c:\Git\working-hard\Compressor\duplicates\find_duplicates.py" C:\path\to\images --visual --per-top-level
+        python "c:\Git\working-hard\Compressor\duplicates\find_duplicates.py" C:\path\to\images --visual --per-folder
+    python "c:\Git\working-hard\Compressor\duplicates\find_duplicates.py" C:\path\to\images --visual --across-all
+    python "c:\Git\working-hard\Compressor\duplicates\find_duplicates.py" C:\path\to\images --visual --delete-older
+    python "c:\Git\working-hard\Compressor\duplicates\find_duplicates.py" C:\path\to\images --visual --delete-older --dry-run-delete
 """
 
 import argparse
