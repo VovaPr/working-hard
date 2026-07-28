@@ -74,7 +74,7 @@ def run_pipeline(api: PipelineApi):
         f"static_webp={api.run_metrics['static_webp_candidates']}, "
         f"gif={api.run_metrics['gif_candidates']}, "
         f"animated_webp={api.run_metrics['animated_webp_candidates']}, "
-        f"mp4={api.run_metrics['mp4_candidates']})"
+        f"video(mp4/mov)={api.run_metrics['mp4_candidates']})"
     )
 
     try:

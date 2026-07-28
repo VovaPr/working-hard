@@ -58,7 +58,7 @@ def scan_media_candidates(root_folder_path, target_size, min_process_size_mb, ru
                 gif_paths.append(file_path)
             continue
 
-        if lower.endswith(".mp4"):
+        if lower.endswith((".mp4", ".mov")):
             mp4_paths.append(file_path)
             continue
 
@@ -96,5 +96,6 @@ def scan_media_candidates(root_folder_path, target_size, min_process_size_mb, ru
     run_metrics["static_webp_candidates"] = len(static_webp_paths)
     run_metrics["gif_candidates"] = len(gif_paths)
     run_metrics["animated_webp_candidates"] = len(animated_webp_paths)
+    # Keep existing metric key for compatibility; value now includes MP4 and MOV.
     run_metrics["mp4_candidates"] = len(mp4_paths)
     return png_paths, jpg_paths, static_webp_paths, gif_paths, animated_webp_paths, mp4_paths

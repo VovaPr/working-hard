@@ -133,7 +133,7 @@ def process_gifs(
     if mp4_paths:
         ffmpeg_exe = _resolve_ffmpeg_executable()
         if not ffmpeg_exe:
-            print(f"{version} | [mp4.gif] ffmpeg not found; skipping {len(mp4_paths)} MP4 file(s)")
+            print(f"{version} | [mp4.gif] ffmpeg not found; skipping {len(mp4_paths)} MP4/MOV file(s)")
         else:
             profile = str(getattr(gif_cfg.mp4_gif, "profile", "fast")).strip().lower()
             if profile == "quality":
@@ -148,7 +148,7 @@ def process_gifs(
 
             print(f"{version} | [mp4.gif] ffmpeg={_describe_ffmpeg_source(ffmpeg_exe)}")
             print(f"{version} | [mp4.gif] profile={profile} fps={fps} width={width} scale={scale_flags}")
-            print(f"{version} | [mp4.gif] converting {len(mp4_paths)} MP4 file(s)")
+            print(f"{version} | [mp4.gif] converting {len(mp4_paths)} MP4/MOV file(s)")
             converted_count = 0
             exists_count = 0
             failed_count = 0

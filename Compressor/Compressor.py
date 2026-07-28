@@ -7,7 +7,7 @@ What this compressor does:
 """
 
 # Single source of truth for the application version.
-APP_VERSION = "2.0.72"
+APP_VERSION = "2.0.73"
 
 # Standard library imports
 import os, sys, time, subprocess
@@ -246,7 +246,7 @@ def compress_animated_webp_until_under_target(path, gif_cfg=CONFIG.gif):
 
 
 def process_gifs(gif_paths, animated_webp_paths, mp4_paths):
-    """GIF block: process queued oversized GIFs/animated WEBPs and convert MP4 to GIF."""
+    """GIF block: process queued oversized GIFs/animated WEBPs and convert MP4/MOV to GIF."""
     return gif_process_gifs(
         gif_paths,
         animated_webp_paths,
@@ -264,7 +264,7 @@ if __name__ == "__main__":
 
     print(
         f"Compressor {APP_VERSION} | Formats: PNG/JPG/JPEG/JFIF/static WEBP -> <= 999 KB; "
-        "GIF/animated WEBP -> 13.5-14.99 MB; MP4 -> GIF"
+        "GIF/animated WEBP -> 13.5-14.99 MB; MP4/MOV -> GIF"
     )
 
     run_pipeline(
