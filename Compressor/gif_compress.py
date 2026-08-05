@@ -103,6 +103,7 @@ def _convert_video_to_webp(
     best_size = None
 
     for attempt in range(1, max(1, int(max_attempts)) + 1):
+        attempt_started_at = time.time()
         result = _encode_video_to_webp(
             source_path=source_path,
             output_webp=output_webp,
@@ -125,9 +126,10 @@ def _convert_video_to_webp(
 
         best_size = size_bytes if best_size is None else min(best_size, size_bytes)
         size_mb = size_bytes / (1024 * 1024)
+        attempt_elapsed = time.time() - attempt_started_at
         print(
             f"{version} | [video.webp] attempt={attempt} q={current_quality} width={current_width} "
-            f"-> {size_mb:.2f} MB"
+            f"-> {size_mb:.2f} MB | elapsed={attempt_elapsed:.2f} sec"
         )
         if size_bytes <= target_bytes:
             elapsed = time.time() - started_at
