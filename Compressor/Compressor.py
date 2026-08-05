@@ -104,6 +104,7 @@ class MP4GifConfig:
     # Video conversion profiles for MP4/MOV -> animated WEBP.
     profile: str = "fast"
     delete_source_after_success: bool = True
+    target_min_mb: float = 13.5
     target_max_mb: float = 14.99
     fast_fps: int = 12
     fast_width: int = 720
@@ -275,8 +276,8 @@ if __name__ == "__main__":
         f"Compressor {APP_VERSION} | Formats: PNG/JPG/JPEG/JFIF/static WEBP -> <= 999 KB "
     )
     print(
-        f"Compressor {APP_VERSION} | GIF/animated WEBP -> 13.5-14.99 MB; "
-        "MP4/MOV -> animated WEBP <= 14.99 MB"
+        f"Compressor {APP_VERSION} | MP4/MOV -> animated WEBP, "
+        "GIF/animated WEBP -> 13.5-14.99 MB;"
     )
 
     run_pipeline(
