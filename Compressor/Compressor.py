@@ -272,8 +272,11 @@ if __name__ == "__main__":
     from runner import PipelineApi, run_pipeline
 
     print(
-        f"Compressor {APP_VERSION} | Formats: PNG/JPG/JPEG/JFIF/static WEBP -> <= 999 KB; "
-        "GIF/animated WEBP -> 13.5-14.99 MB; MP4/MOV -> animated WEBP <= 10 MB"
+        f"Compressor {APP_VERSION} | Formats: PNG/JPG/JPEG/JFIF/static WEBP -> <= 999 KB "
+    )
+    print(
+        f"Compressor {APP_VERSION} | GIF/animated WEBP -> 13.5-14.99 MB; "
+        "MP4/MOV -> animated WEBP <= 10 MB"
     )
 
     run_pipeline(
