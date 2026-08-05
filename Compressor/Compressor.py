@@ -7,7 +7,7 @@ What this compressor does:
 """
 
 # Single source of truth for the application version.
-APP_VERSION = "2.0.73"
+APP_VERSION = "2.0.74"
 
 # Standard library imports
 import os, sys, time, subprocess
@@ -101,15 +101,24 @@ class GIFGuardConfig:
 
 @dataclass(frozen=True)
 class MP4GifConfig:
-    # Profiles: fast (default) or quality
+    # Video conversion profiles for MP4/MOV -> animated WEBP.
     profile: str = "fast"
     delete_source_after_success: bool = True
-    fast_fps: int = 8
-    fast_width: int = 540
+    target_max_mb: float = 10.0
+    fast_fps: int = 12
+    fast_width: int = 720
     fast_scale_flags: str = "bicubic"
-    quality_fps: int = 12
-    quality_width: int = 720
+    fast_webp_quality: int = 78
+    fast_webp_compression_level: int = 4
+    quality_fps: int = 15
+    quality_width: int = 840
     quality_scale_flags: str = "lanczos"
+    quality_webp_quality: int = 84
+    quality_webp_compression_level: int = 5
+    webp_min_quality: int = 42
+    webp_min_width: int = 420
+    webp_resize_step_ratio: float = 0.90
+    webp_max_attempts: int = 10
 
 
 @dataclass(frozen=True)
@@ -246,7 +255,7 @@ def compress_animated_webp_until_under_target(path, gif_cfg=CONFIG.gif):
 
 
 def process_gifs(gif_paths, animated_webp_paths, mp4_paths):
-    """GIF block: process queued oversized GIFs/animated WEBPs and convert MP4/MOV to GIF."""
+    """GIF block: process oversized GIF/animated WEBP and convert MP4/MOV to animated WEBP."""
     return gif_process_gifs(
         gif_paths,
         animated_webp_paths,
@@ -264,7 +273,7 @@ if __name__ == "__main__":
 
     print(
         f"Compressor {APP_VERSION} | Formats: PNG/JPG/JPEG/JFIF/static WEBP -> <= 999 KB; "
-        "GIF/animated WEBP -> 13.5-14.99 MB; MP4/MOV -> GIF"
+        "GIF/animated WEBP -> 13.5-14.99 MB; MP4/MOV -> animated WEBP <= 10 MB"
     )
 
     run_pipeline(
