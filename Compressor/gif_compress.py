@@ -114,6 +114,61 @@ def _encode_video_to_webp(
     return subprocess.run(cmd, capture_output=True, text=True, check=False)
 
 
+def _probe_video_proxy_size(
+    *,
+    source_path,
+    ffmpeg_exe,
+    fps,
+    width,
+    scale_flags,
+    quality,
+    compression_level,
+):
+    proxy_output = os.path.splitext(source_path)[0] + ".probe.tmp.webp"
+    if os.path.exists(proxy_output):
+        try:
+            os.remove(proxy_output)
+        except OSError:
+            pass
+
+    probe_fps = max(2, int(fps) // 4)
+    probe_width = max(128, int(width) // 4)
+    result = _encode_video_to_webp(
+        source_path=source_path,
+        output_webp=proxy_output,
+        ffmpeg_exe=ffmpeg_exe,
+        fps=probe_fps,
+        width=probe_width,
+        scale_flags=scale_flags,
+        quality=max(20, min(90, int(quality))),
+        compression_level=max(1, int(compression_level) - 1),
+    )
+    if result.returncode != 0:
+        try:
+            if os.path.exists(proxy_output):
+                os.remove(proxy_output)
+        except OSError:
+            pass
+        return None
+
+    try:
+        proxy_size = os.path.getsize(proxy_output)
+    except OSError:
+        proxy_size = None
+
+    try:
+        if os.path.exists(proxy_output):
+            os.remove(proxy_output)
+    except OSError:
+        pass
+
+    return {
+        "size_bytes": proxy_size,
+        "fps": probe_fps,
+        "width": probe_width,
+    }
+
+
 def _convert_video_to_webp(
     source_path,
     *,
@@ -157,6 +212,25 @@ def _convert_video_to_webp(
     best_size = None
     lower_q = min_quality
     upper_q = 100
+
+    proxy_probe = _probe_video_proxy_size(
+        source_path=source_path,
+        ffmpeg_exe=ffmpeg_exe,
+        fps=fps,
+        width=current_width,
+        scale_flags=scale_flags,
+        quality=current_quality,
+        compression_level=compression_level,
+    )
+    if proxy_probe and proxy_probe.get("size_bytes"):
+        proxy_mb = proxy_probe["size_bytes"] / (1024 * 1024)
+        target_mid_mb = (target_min_mb + target_max_mb) / 2.0
+        ratio = max(0.25, min(4.0, target_mid_mb / max(0.01, proxy_mb)))
+        q_delta = int((ratio - 1.0) * 18)
+        current_quality = max(min_quality, min(100, current_quality + q_delta))
+        print(
+            f"{version} | [video.webp] probe={proxy_mb:.2f} MB proxy={proxy_probe['width']}x? fps={proxy_probe['fps']} -> q={current_quality}"
+        )
 
     for attempt in range(1, max(1, int(max_attempts)) + 1):
         attempt_started_at = time.time()
