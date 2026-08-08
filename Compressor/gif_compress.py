@@ -136,9 +136,12 @@ def _convert_video_to_webp(
     video_meta,
 ):
     output_webp = os.path.splitext(source_path)[0] + ".webp"
-    if os.path.exists(output_webp):
-        print(f"{version} | [video.webp] skip (exists): {output_webp}")
-        return {"status": "exists", "output_webp": output_webp}
+    temp_output_webp = output_webp + ".tmp"
+    if os.path.exists(temp_output_webp):
+        try:
+            os.remove(temp_output_webp)
+        except OSError:
+            pass
 
     started_at = time.time()
     try:
@@ -159,7 +162,7 @@ def _convert_video_to_webp(
         attempt_started_at = time.time()
         result = _encode_video_to_webp(
             source_path=source_path,
-            output_webp=output_webp,
+            output_webp=temp_output_webp,
             ffmpeg_exe=ffmpeg_exe,
             fps=fps,
             width=current_width,
@@ -168,13 +171,24 @@ def _convert_video_to_webp(
             compression_level=compression_level,
         )
         if result.returncode != 0:
+            try:
+                if os.path.exists(temp_output_webp):
+                    os.remove(temp_output_webp)
+            except OSError:
+                pass
             print(f"{version} | [video.webp] encode failed: {source_path} (attempt={attempt})")
             return {"status": "failed", "output_webp": None}
 
         try:
-            size_bytes = os.path.getsize(output_webp)
+            size_bytes = os.path.getsize(temp_output_webp)
         except OSError:
-            print(f"{version} | [video.webp] output missing after encode: {output_webp}")
+            print(f"{version} | [video.webp] output missing after encode: {temp_output_webp}")
+            return {"status": "failed", "output_webp": None}
+
+        try:
+            os.replace(temp_output_webp, output_webp)
+        except OSError:
+            print(f"{version} | [video.webp] failed to replace output: {output_webp}")
             return {"status": "failed", "output_webp": None}
 
         best_size = size_bytes if best_size is None else min(best_size, size_bytes)
@@ -239,6 +253,11 @@ def _convert_video_to_webp(
 
     elapsed = time.time() - started_at
     final_mb = (best_size / (1024 * 1024)) if best_size else -1
+    try:
+        if os.path.exists(temp_output_webp):
+            os.remove(temp_output_webp)
+    except OSError:
+        pass
     if stats_mgr and video_meta and best_size is not None:
         stats_mgr.save_attempt(
             profile=video_meta["profile"],
