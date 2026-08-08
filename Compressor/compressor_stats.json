@@ -5259,13 +5259,13 @@
       "source_duration_bucket": 10.0,
       "source_size_bucket": 6.0,
       "source_size_mb": 5.62,
-      "quality": 96,
+      "quality": 97,
       "width": 866,
-      "result_size_mb": 13.65,
-      "encode_sec": 75.82,
-      "attempts": 4,
+      "result_size_mb": 14.7,
+      "encode_sec": 50.89,
+      "attempts": 3,
       "success": true,
-      "timestamp": 1786168314.7809546,
+      "timestamp": 1786168489.1191087,
       "count": 1
     }
   ]
