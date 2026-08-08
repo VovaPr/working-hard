@@ -103,6 +103,7 @@ class VideoWebPStatsManager:
         return {
             "quality": int(best.get("quality", default_quality)),
             "width": int(best.get("width", default_width)),
+            "score": float(best_score),
             "source": (
                 f"video stats (records={self.stats_count()}, "
                 f"score={best_score:.3f}, q={best.get('quality')}, width={best.get('width')})"

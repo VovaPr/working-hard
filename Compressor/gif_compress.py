@@ -402,6 +402,7 @@ def _convert_video_to_webp(
     proxy_full_scale_bias,
     preflight_max_attempts,
     preflight_close_ratio,
+    skip_preflight,
     continue_after_first_target,
     target_mid_tolerance_ratio,
 ):
@@ -443,44 +444,48 @@ def _convert_video_to_webp(
         except OSError:
             pass
 
-    preflight_plan = _run_video_preflight(
-        source_path=source_path,
-        version=version,
-        ffmpeg_exe=ffmpeg_exe,
-        target_fps=fps,
-        target_width=current_width,
-        scale_flags=scale_flags,
-        start_quality=current_quality,
-        start_width=current_width,
-        compression_level=compression_level,
-        target_min_mb=target_min_mb,
-        target_max_mb=target_max_mb,
-        min_quality=min_quality,
-        min_width=min_width,
-        max_width=max_width,
-        resize_step_ratio=resize_step_ratio,
-        max_attempts=max_attempts,
-        proxy_full_scale_bias=proxy_full_scale_bias,
-        preflight_max_attempts=preflight_max_attempts,
-        preflight_close_ratio=preflight_close_ratio,
-    )
-    if preflight_plan:
-        current_quality = int(preflight_plan["quality"])
-        current_width = int(preflight_plan["width"])
-        print(f"{version} | [video.webp] startup={preflight_plan['source']}")
-        if not preflight_plan.get("converged"):
-            if preflight_plan.get("at_hard_limits"):
-                print(
-                    f"{version} | [video.webp] preflight not converged but at hard limits; "
-                    f"proceeding with full encode (estimate={preflight_plan['estimate_mb']:.2f} MB, "
-                    f"target={target_min_mb:.2f}-{target_max_mb:.2f} MB)"
-                )
-            else:
-                print(
-                    f"{version} | [video.webp] preflight not converged; skipping full encode "
-                    f"(estimate={preflight_plan['estimate_mb']:.2f} MB, target={target_min_mb:.2f}-{target_max_mb:.2f} MB)"
-                )
-                return {"status": "failed", "output_webp": None}
+    preflight_plan = None
+    if skip_preflight:
+        print(f"{version} | [video.webp] startup=exact stats match; preflight skipped")
+    else:
+        preflight_plan = _run_video_preflight(
+            source_path=source_path,
+            version=version,
+            ffmpeg_exe=ffmpeg_exe,
+            target_fps=fps,
+            target_width=current_width,
+            scale_flags=scale_flags,
+            start_quality=current_quality,
+            start_width=current_width,
+            compression_level=compression_level,
+            target_min_mb=target_min_mb,
+            target_max_mb=target_max_mb,
+            min_quality=min_quality,
+            min_width=min_width,
+            max_width=max_width,
+            resize_step_ratio=resize_step_ratio,
+            max_attempts=max_attempts,
+            proxy_full_scale_bias=proxy_full_scale_bias,
+            preflight_max_attempts=preflight_max_attempts,
+            preflight_close_ratio=preflight_close_ratio,
+        )
+        if preflight_plan:
+            current_quality = int(preflight_plan["quality"])
+            current_width = int(preflight_plan["width"])
+            print(f"{version} | [video.webp] startup={preflight_plan['source']}")
+            if not preflight_plan.get("converged"):
+                if preflight_plan.get("at_hard_limits"):
+                    print(
+                        f"{version} | [video.webp] preflight not converged but at hard limits; "
+                        f"proceeding with full encode (estimate={preflight_plan['estimate_mb']:.2f} MB, "
+                        f"target={target_min_mb:.2f}-{target_max_mb:.2f} MB)"
+                    )
+                else:
+                    print(
+                        f"{version} | [video.webp] preflight not converged; skipping full encode "
+                        f"(estimate={preflight_plan['estimate_mb']:.2f} MB, target={target_min_mb:.2f}-{target_max_mb:.2f} MB)"
+                    )
+                    return {"status": "failed", "output_webp": None}
 
     for attempt in range(1, max(1, int(max_attempts)) + 1):
         attempt_started_at = time.time()
@@ -761,6 +766,7 @@ def process_gifs(
                 )
                 initial_quality = startup_plan["quality"] if startup_plan else webp_quality
                 initial_width = startup_plan["width"] if startup_plan else width
+                startup_score = float(startup_plan.get("score", 999.0)) if startup_plan else 999.0
                 if startup_plan:
                     print(f"{version} | [video.webp] startup={startup_plan['source']}")
                 convert_result = _convert_video_to_webp(
@@ -785,8 +791,13 @@ def process_gifs(
                     proxy_full_scale_bias=float(getattr(gif_cfg.mp4_gif, "proxy_full_scale_bias", 2.0)),
                     preflight_max_attempts=int(getattr(gif_cfg.mp4_gif, "webp_preflight_max_attempts", 4)),
                     preflight_close_ratio=float(getattr(gif_cfg.mp4_gif, "webp_preflight_close_ratio", 0.10)),
+                    skip_preflight=(
+                        bool(getattr(gif_cfg.mp4_gif, "webp_skip_preflight_on_exact_stats", True))
+                        and startup_plan is not None
+                        and startup_score <= float(getattr(gif_cfg.mp4_gif, "webp_exact_stats_score_threshold", 0.001))
+                    ),
                     continue_after_first_target=bool(getattr(gif_cfg.mp4_gif, "webp_continue_after_first_target", True)),
-                    target_mid_tolerance_ratio=float(getattr(gif_cfg.mp4_gif, "webp_target_mid_tolerance_ratio", 0.03)),
+                    target_mid_tolerance_ratio=float(getattr(gif_cfg.mp4_gif, "webp_target_mid_tolerance_ratio", 0.04)),
                 )
                 if not convert_result:
                     failed_count += 1
