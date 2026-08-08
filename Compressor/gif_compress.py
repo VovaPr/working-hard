@@ -191,6 +191,12 @@ def _convert_video_to_webp(
     video_meta,
     proxy_full_scale_bias,
 ):
+    def _reset_quality_window(seed_quality, *, step=6):
+        seed_quality = max(min_quality, min(100, int(seed_quality)))
+        lower = max(min_quality, seed_quality - step)
+        upper = min(100, seed_quality + step)
+        return seed_quality, lower, upper
+
     output_webp = os.path.splitext(source_path)[0] + ".webp"
     temp_output_webp = os.path.splitext(output_webp)[0] + ".tmp.webp"
     if os.path.exists(temp_output_webp):
@@ -325,16 +331,12 @@ def _convert_video_to_webp(
 
         if size_bytes < target_min_bytes and current_width < max_width:
             current_width = min(max_width, current_width + max(1, current_width // 20))
-            lower_q = min_quality
-            upper_q = 100
-            current_quality = 100
+            current_quality, lower_q, upper_q = _reset_quality_window(current_quality + 2)
             continue
 
         if size_bytes > target_bytes and current_width > min_width:
             current_width = max(min_width, int(current_width * float(resize_step_ratio)))
-            lower_q = min_quality
-            upper_q = 100
-            current_quality = max(min_quality, min(100, current_quality - 2))
+            current_quality, lower_q, upper_q = _reset_quality_window(current_quality - 2)
             continue
 
         break
