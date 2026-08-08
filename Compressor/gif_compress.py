@@ -225,11 +225,18 @@ def _convert_video_to_webp(
     if proxy_probe and proxy_probe.get("size_bytes"):
         proxy_mb = proxy_probe["size_bytes"] / (1024 * 1024)
         target_mid_mb = (target_min_mb + target_max_mb) / 2.0
-        ratio = max(0.25, min(4.0, target_mid_mb / max(0.01, proxy_mb)))
-        q_delta = int((ratio - 1.0) * 18)
+        probe_scale = (
+            (video_meta["width"] / max(1, proxy_probe["width"]))
+            * (video_meta["fps"] / max(1.0, proxy_probe["fps"]))
+            * float(getattr(gif_cfg.mp4_gif, "proxy_full_scale_bias", 3.0))
+        )
+        estimated_full_mb = proxy_mb * probe_scale
+        ratio = target_mid_mb / max(0.01, estimated_full_mb)
+        q_delta = int((ratio - 1.0) * 24)
         current_quality = max(min_quality, min(100, current_quality + q_delta))
         print(
-            f"{version} | [video.webp] probe={proxy_mb:.2f} MB proxy={proxy_probe['width']}x? fps={proxy_probe['fps']} -> q={current_quality}"
+            f"{version} | [video.webp] probe={proxy_mb:.2f} MB proxy={proxy_probe['width']}x? fps={proxy_probe['fps']} "
+            f"scale={probe_scale:.1f} est={estimated_full_mb:.2f} MB -> q={current_quality}"
         )
 
     for attempt in range(1, max(1, int(max_attempts)) + 1):
