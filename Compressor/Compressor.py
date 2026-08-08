@@ -7,7 +7,7 @@ What this compressor does:
 """
 
 # Single source of truth for the application version.
-APP_VERSION = "2.0.80"
+APP_VERSION = "2.0.81"
 
 # Standard library imports
 import os, sys, time, subprocess
@@ -121,6 +121,8 @@ class MP4GifConfig:
     webp_min_width: int = 420
     webp_resize_step_ratio: float = 0.90
     webp_max_attempts: int = 10
+    webp_preflight_max_attempts: int = 4
+    webp_preflight_close_ratio: float = 0.10
 
 
 @dataclass(frozen=True)

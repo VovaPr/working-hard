@@ -169,6 +169,130 @@ def _probe_video_proxy_size(
     }
 
 
+def _estimate_video_full_size_mb(*, proxy_probe, proxy_size_bytes, target_width, target_fps, proxy_full_scale_bias):
+    proxy_mb = proxy_size_bytes / (1024 * 1024)
+    probe_scale = (
+        (target_width / max(1, proxy_probe["width"]))
+        * (target_fps / max(1.0, proxy_probe["fps"]))
+        * float(proxy_full_scale_bias)
+    )
+    estimated_full_mb = proxy_mb * probe_scale
+    return proxy_mb, probe_scale, estimated_full_mb
+
+
+def _run_video_preflight(
+    *,
+    source_path,
+    version,
+    ffmpeg_exe,
+    target_fps,
+    target_width,
+    scale_flags,
+    start_quality,
+    start_width,
+    compression_level,
+    target_min_mb,
+    target_max_mb,
+    min_quality,
+    min_width,
+    max_width,
+    resize_step_ratio,
+    max_attempts,
+    proxy_full_scale_bias,
+    preflight_max_attempts,
+    preflight_close_ratio,
+):
+    target_mid_mb = (target_min_mb + target_max_mb) / 2.0
+    current_quality = max(min_quality, min(100, int(start_quality)))
+    current_width = max(min_width, int(start_width))
+    lower_q = min_quality
+    upper_q = 100
+    best_estimate_mb = None
+    best_probe = None
+
+    def _next_quality(seed_quality):
+        seed_quality = max(min_quality, min(100, int(seed_quality)))
+        return seed_quality, max(min_quality, seed_quality - 4), min(100, seed_quality + 4)
+
+    for probe_attempt in range(1, max(1, int(preflight_max_attempts)) + 1):
+        proxy_probe = _probe_video_proxy_size(
+            source_path=source_path,
+            ffmpeg_exe=ffmpeg_exe,
+            fps=target_fps,
+            width=current_width,
+            scale_flags=scale_flags,
+            quality=current_quality,
+            compression_level=compression_level,
+        )
+        if not proxy_probe or not proxy_probe.get("size_bytes"):
+            print(f"{version} | [video.webp] preflight failed: proxy encode unavailable")
+            break
+
+        proxy_mb, probe_scale, estimated_full_mb = _estimate_video_full_size_mb(
+            proxy_probe=proxy_probe,
+            proxy_size_bytes=proxy_probe["size_bytes"],
+            target_width=current_width,
+            target_fps=target_fps,
+            proxy_full_scale_bias=proxy_full_scale_bias,
+        )
+        best_estimate_mb = estimated_full_mb
+        best_probe = proxy_probe
+        print(
+            f"{version} | [video.webp] preflight={probe_attempt} probe={proxy_mb:.2f} MB "
+            f"proxy={proxy_probe['width']}x? fps={proxy_probe['fps']} scale={probe_scale:.1f} "
+            f"est={estimated_full_mb:.2f} MB q={current_quality} width={current_width}"
+        )
+
+        within_target = target_min_mb <= estimated_full_mb <= target_max_mb
+        near_target = abs(estimated_full_mb - target_mid_mb) / max(target_mid_mb, 0.01) <= float(preflight_close_ratio)
+        if within_target and near_target:
+            return {
+                "quality": current_quality,
+                "width": current_width,
+                "source": (
+                    f"preflight proxy (attempts={probe_attempt}, est={estimated_full_mb:.2f} MB, "
+                    f"q={current_quality}, width={current_width})"
+                ),
+                "estimate_mb": estimated_full_mb,
+                "converged": True,
+            }
+
+        if estimated_full_mb < target_min_mb:
+            lower_q = max(lower_q, current_quality)
+            if current_width < max_width:
+                current_width = min(max_width, current_width + max(1, current_width // 20))
+                current_quality = max(min_quality, min(100, current_quality + 2))
+                continue
+        else:
+            upper_q = min(upper_q, current_quality)
+            if current_width > min_width:
+                current_width = max(min_width, int(current_width * float(resize_step_ratio)))
+                current_quality = max(min_quality, current_quality - 2)
+                continue
+
+        if upper_q - lower_q <= 1:
+            break
+
+        current_quality, lower_q, upper_q = _next_quality((lower_q + upper_q) // 2)
+
+    if best_estimate_mb is None:
+        return None
+
+    if best_probe is None:
+        return None
+
+    return {
+        "quality": current_quality,
+        "width": current_width,
+        "source": (
+            f"preflight proxy (attempts={max(1, int(preflight_max_attempts))}, est={best_estimate_mb:.2f} MB, "
+            f"q={current_quality}, width={current_width})"
+        ),
+        "estimate_mb": best_estimate_mb,
+        "converged": False,
+    }
+
+
 def _convert_video_to_webp(
     source_path,
     *,
@@ -190,8 +314,10 @@ def _convert_video_to_webp(
     stats_mgr,
     video_meta,
     proxy_full_scale_bias,
+    preflight_max_attempts,
+    preflight_close_ratio,
 ):
-    def _reset_quality_window(seed_quality, *, step=6):
+    def _reset_quality_window(seed_quality, *, step=4):
         seed_quality = max(min_quality, min(100, int(seed_quality)))
         lower = max(min_quality, seed_quality - step)
         upper = min(100, seed_quality + step)
@@ -220,31 +346,31 @@ def _convert_video_to_webp(
     lower_q = min_quality
     upper_q = 100
 
-    proxy_probe = _probe_video_proxy_size(
+    preflight_plan = _run_video_preflight(
         source_path=source_path,
+        version=version,
         ffmpeg_exe=ffmpeg_exe,
-        fps=fps,
-        width=current_width,
+        target_fps=fps,
+        target_width=current_width,
         scale_flags=scale_flags,
-        quality=current_quality,
+        start_quality=current_quality,
+        start_width=current_width,
         compression_level=compression_level,
+        target_min_mb=target_min_mb,
+        target_max_mb=target_max_mb,
+        min_quality=min_quality,
+        min_width=min_width,
+        max_width=max_width,
+        resize_step_ratio=resize_step_ratio,
+        max_attempts=max_attempts,
+        proxy_full_scale_bias=proxy_full_scale_bias,
+        preflight_max_attempts=preflight_max_attempts,
+        preflight_close_ratio=preflight_close_ratio,
     )
-    if proxy_probe and proxy_probe.get("size_bytes"):
-        proxy_mb = proxy_probe["size_bytes"] / (1024 * 1024)
-        target_mid_mb = (target_min_mb + target_max_mb) / 2.0
-        probe_scale = (
-            (current_width / max(1, proxy_probe["width"]))
-            * (video_meta["fps"] / max(1.0, proxy_probe["fps"]))
-            * float(proxy_full_scale_bias)
-        )
-        estimated_full_mb = proxy_mb * probe_scale
-        ratio = target_mid_mb / max(0.01, estimated_full_mb)
-        q_delta = int((ratio - 1.0) * 24)
-        current_quality = max(min_quality, min(100, current_quality + q_delta))
-        print(
-            f"{version} | [video.webp] probe={proxy_mb:.2f} MB proxy={proxy_probe['width']}x? fps={proxy_probe['fps']} "
-            f"scale={probe_scale:.1f} est={estimated_full_mb:.2f} MB -> q={current_quality}"
-        )
+    if preflight_plan:
+        current_quality = int(preflight_plan["quality"])
+        current_width = int(preflight_plan["width"])
+        print(f"{version} | [video.webp] startup={preflight_plan['source']}")
 
     for attempt in range(1, max(1, int(max_attempts)) + 1):
         attempt_started_at = time.time()
@@ -329,13 +455,11 @@ def _convert_video_to_webp(
                 current_quality = next_quality
                 continue
 
-        if size_bytes < target_min_bytes and current_width < max_width:
-            current_width = min(max_width, current_width + max(1, current_width // 20))
+        if size_bytes < target_min_bytes:
             current_quality, lower_q, upper_q = _reset_quality_window(current_quality + 2)
             continue
 
-        if size_bytes > target_bytes and current_width > min_width:
-            current_width = max(min_width, int(current_width * float(resize_step_ratio)))
+        if size_bytes > target_bytes:
             current_quality, lower_q, upper_q = _reset_quality_window(current_quality - 2)
             continue
 
@@ -487,7 +611,9 @@ def process_gifs(
                     max_attempts=max_attempts,
                     stats_mgr=stats_mgr_video,
                     video_meta=video_meta,
-                    proxy_full_scale_bias=float(getattr(gif_cfg.mp4_gif, "proxy_full_scale_bias", 3.0)),
+                    proxy_full_scale_bias=float(getattr(gif_cfg.mp4_gif, "proxy_full_scale_bias", 2.0)),
+                    preflight_max_attempts=int(getattr(gif_cfg.mp4_gif, "webp_preflight_max_attempts", 4)),
+                    preflight_close_ratio=float(getattr(gif_cfg.mp4_gif, "webp_preflight_close_ratio", 0.10)),
                 )
                 if not convert_result:
                     failed_count += 1
