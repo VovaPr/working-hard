@@ -642,6 +642,7 @@ def process_gifs(
             delete_failed_count = 0
             delete_after_success = bool(getattr(gif_cfg.mp4_gif, "delete_source_after_success", True))
             for video_path in mp4_paths:
+                print(f"{version} | [video.startup] | Starting file: {video_path}")
                 video_meta = None
                 if ffprobe_exe:
                     video_meta = _probe_video_metadata(video_path, ffprobe_exe)

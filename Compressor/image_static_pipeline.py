@@ -15,6 +15,7 @@ def _process_pngs(*, png_paths, version, target_size):
     worked = False
     for png_path in png_paths:
         worked = True
+        print(f"{version} | [image.startup] | Starting file: {png_path}")
         jpg_path = _build_jpg_path_from_png(png_path)
 
         try:
@@ -42,6 +43,7 @@ def _process_jpgs(*, jpg_paths, version, target_size):
     worked = False
     for jpg_path in jpg_paths:
         worked = True
+        print(f"{version} | [image.startup] | Starting file: {jpg_path}")
         try:
             ext = os.path.splitext(jpg_path)[1].lower()
             if ext == ".jfif":
@@ -73,6 +75,7 @@ def _process_static_webp(*, static_webp_paths, version, target_size, gif_cfg):
     worked = False
     for webp_path in static_webp_paths:
         worked = True
+        print(f"{version} | [image.startup] | Starting file: {webp_path}")
         try:
             compress_static_webp_until_under_target(webp_path, version, target_size, gif_cfg)
         except Exception as exc:
