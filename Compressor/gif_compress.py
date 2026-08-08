@@ -141,7 +141,7 @@ def _probe_video_proxy_size(
         fps=probe_fps,
         width=probe_width,
         scale_flags=scale_flags,
-        quality=max(20, min(90, int(quality))),
+        quality=max(20, min(100, int(quality))),
         compression_level=max(1, int(compression_level) - 1),
     )
     if result.returncode != 0:
@@ -368,6 +368,10 @@ def _run_video_preflight(
             f"q={int(best_point['quality'])}, width={int(best_point['width'])})"
         ),
         "estimate_mb": best_estimate_mb,
+        "at_hard_limits": bool(
+            (best_estimate_mb < target_min_mb and int(best_point["quality"]) >= 100 and int(best_point["width"]) >= int(max_width))
+            or (best_estimate_mb > target_max_mb and int(best_point["quality"]) <= int(min_quality) and int(best_point["width"]) <= int(min_width))
+        ),
         "converged": bool(
             target_min_mb <= best_estimate_mb <= target_max_mb
             and abs(best_estimate_mb - target_mid_mb) / max(target_mid_mb, 0.01) <= float(preflight_close_ratio)
@@ -454,11 +458,18 @@ def _convert_video_to_webp(
         current_width = int(preflight_plan["width"])
         print(f"{version} | [video.webp] startup={preflight_plan['source']}")
         if not preflight_plan.get("converged"):
-            print(
-                f"{version} | [video.webp] preflight not converged; skipping full encode "
-                f"(estimate={preflight_plan['estimate_mb']:.2f} MB, target={target_min_mb:.2f}-{target_max_mb:.2f} MB)"
-            )
-            return {"status": "failed", "output_webp": None}
+            if preflight_plan.get("at_hard_limits"):
+                print(
+                    f"{version} | [video.webp] preflight not converged but at hard limits; "
+                    f"proceeding with full encode (estimate={preflight_plan['estimate_mb']:.2f} MB, "
+                    f"target={target_min_mb:.2f}-{target_max_mb:.2f} MB)"
+                )
+            else:
+                print(
+                    f"{version} | [video.webp] preflight not converged; skipping full encode "
+                    f"(estimate={preflight_plan['estimate_mb']:.2f} MB, target={target_min_mb:.2f}-{target_max_mb:.2f} MB)"
+                )
+                return {"status": "failed", "output_webp": None}
 
     for attempt in range(1, max(1, int(max_attempts)) + 1):
         attempt_started_at = time.time()
