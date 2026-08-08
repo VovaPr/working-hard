@@ -136,7 +136,7 @@ def _convert_video_to_webp(
     video_meta,
 ):
     output_webp = os.path.splitext(source_path)[0] + ".webp"
-    temp_output_webp = output_webp + ".tmp"
+    temp_output_webp = os.path.splitext(output_webp)[0] + ".tmp.webp"
     if os.path.exists(temp_output_webp):
         try:
             os.remove(temp_output_webp)
@@ -176,7 +176,13 @@ def _convert_video_to_webp(
                     os.remove(temp_output_webp)
             except OSError:
                 pass
-            print(f"{version} | [video.webp] encode failed: {source_path} (attempt={attempt})")
+            stderr = (result.stderr or "").strip()
+            if stderr:
+                print(
+                    f"{version} | [video.webp] encode failed: {source_path} (attempt={attempt}) | {stderr.splitlines()[-1]}"
+                )
+            else:
+                print(f"{version} | [video.webp] encode failed: {source_path} (attempt={attempt})")
             return {"status": "failed", "output_webp": None}
 
         try:
