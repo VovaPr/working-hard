@@ -402,6 +402,8 @@ def _convert_video_to_webp(
     proxy_full_scale_bias,
     preflight_max_attempts,
     preflight_close_ratio,
+    continue_after_first_target,
+    target_mid_tolerance_ratio,
 ):
     def _reset_quality_window(seed_quality, *, step=4):
         seed_quality = max(min_quality, min(100, int(seed_quality)))
@@ -428,9 +430,18 @@ def _convert_video_to_webp(
     max_width = max(min_width, int(max_width))
     target_bytes = int(float(target_max_mb) * 1024 * 1024)
     target_min_bytes = int(float(target_min_mb) * 1024 * 1024)
+    target_mid_bytes = int(((float(target_min_mb) + float(target_max_mb)) / 2.0) * 1024 * 1024)
     best_size = None
     lower_q = min_quality
     upper_q = 100
+    had_target_hit = False
+    best_target_size = None
+    best_target_output_webp = os.path.splitext(output_webp)[0] + ".best.tmp.webp"
+    if os.path.exists(best_target_output_webp):
+        try:
+            os.remove(best_target_output_webp)
+        except OSError:
+            pass
 
     preflight_plan = _run_video_preflight(
         source_path=source_path,
@@ -518,6 +529,36 @@ def _convert_video_to_webp(
             f"-> {size_mb:.2f} MB | elapsed={attempt_elapsed:.2f} sec"
         )
         if target_min_bytes <= size_bytes <= target_bytes:
+            had_target_hit = True
+            best_target_size = size_bytes
+            try:
+                shutil.copyfile(output_webp, best_target_output_webp)
+            except OSError:
+                pass
+
+            should_finalize = True
+            if continue_after_first_target:
+                mid_miss_ratio = abs(size_bytes - target_mid_bytes) / max(target_mid_bytes, 1)
+                if size_bytes < target_mid_bytes:
+                    lower_q = max(lower_q, current_quality)
+                elif size_bytes > target_mid_bytes:
+                    upper_q = min(upper_q, current_quality)
+
+                if attempt < max(1, int(max_attempts)) and mid_miss_ratio > float(target_mid_tolerance_ratio):
+                    next_quality = None
+                    if upper_q - lower_q > 1:
+                        next_quality = (lower_q + upper_q) // 2
+                    if next_quality is not None and next_quality != current_quality:
+                        print(
+                            f"{version} | [video.webp] in-target refine: q={current_quality} "
+                            f"mid_miss={mid_miss_ratio*100:.2f}% -> next_q={next_quality}"
+                        )
+                        current_quality = next_quality
+                        should_finalize = False
+
+            if not should_finalize:
+                continue
+
             elapsed = time.time() - started_at
             if src_size_mb is not None:
                 print(
@@ -541,6 +582,11 @@ def _convert_video_to_webp(
                     attempts=attempt,
                     success=True,
                 )
+            try:
+                if os.path.exists(best_target_output_webp):
+                    os.remove(best_target_output_webp)
+            except OSError:
+                pass
             return {"status": "converted", "output_webp": output_webp}
 
         if size_bytes < target_min_bytes:
@@ -557,10 +603,43 @@ def _convert_video_to_webp(
         break
 
     elapsed = time.time() - started_at
+    if had_target_hit:
+        try:
+            if os.path.exists(best_target_output_webp):
+                os.replace(best_target_output_webp, output_webp)
+        except OSError:
+            pass
+        restored_mb = (best_target_size / (1024 * 1024)) if best_target_size else -1
+        print(
+            f"{version} | [video.webp] restored best in-target result after refinement; "
+            f"size={restored_mb:.2f} MB"
+        )
+        if stats_mgr and video_meta and best_target_size is not None:
+            stats_mgr.save_attempt(
+                profile=video_meta["profile"],
+                source_width=video_meta["width"],
+                source_height=video_meta["height"],
+                source_fps=video_meta["fps"],
+                source_duration_sec=video_meta["duration_sec"],
+                source_size_mb=src_size_mb or 0.0,
+                quality=current_quality,
+                width=current_width,
+                result_size_mb=restored_mb,
+                encode_sec=elapsed,
+                attempts=max(1, int(max_attempts)),
+                success=True,
+            )
+        return {"status": "converted", "output_webp": output_webp}
+
     final_mb = (best_size / (1024 * 1024)) if best_size else -1
     try:
         if os.path.exists(temp_output_webp):
             os.remove(temp_output_webp)
+    except OSError:
+        pass
+    try:
+        if os.path.exists(best_target_output_webp):
+            os.remove(best_target_output_webp)
     except OSError:
         pass
     if stats_mgr and video_meta and best_size is not None:
@@ -706,6 +785,8 @@ def process_gifs(
                     proxy_full_scale_bias=float(getattr(gif_cfg.mp4_gif, "proxy_full_scale_bias", 2.0)),
                     preflight_max_attempts=int(getattr(gif_cfg.mp4_gif, "webp_preflight_max_attempts", 4)),
                     preflight_close_ratio=float(getattr(gif_cfg.mp4_gif, "webp_preflight_close_ratio", 0.10)),
+                    continue_after_first_target=bool(getattr(gif_cfg.mp4_gif, "webp_continue_after_first_target", True)),
+                    target_mid_tolerance_ratio=float(getattr(gif_cfg.mp4_gif, "webp_target_mid_tolerance_ratio", 0.03)),
                 )
                 if not convert_result:
                     failed_count += 1
