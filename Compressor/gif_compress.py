@@ -227,7 +227,7 @@ def _convert_video_to_webp(
         proxy_mb = proxy_probe["size_bytes"] / (1024 * 1024)
         target_mid_mb = (target_min_mb + target_max_mb) / 2.0
         probe_scale = (
-            (video_meta["width"] / max(1, proxy_probe["width"]))
+            (current_width / max(1, proxy_probe["width"]))
             * (video_meta["fps"] / max(1.0, proxy_probe["fps"]))
             * float(proxy_full_scale_bias)
         )

@@ -7,7 +7,7 @@ What this compressor does:
 """
 
 # Single source of truth for the application version.
-APP_VERSION = "2.0.78"
+APP_VERSION = "2.0.79"
 
 # Standard library imports
 import os, sys, time, subprocess
@@ -111,7 +111,7 @@ class MP4GifConfig:
     fast_scale_flags: str = "bicubic"
     fast_webp_quality: int = 96
     fast_webp_compression_level: int = 4
-    proxy_full_scale_bias: float = 3.0
+    proxy_full_scale_bias: float = 2.0
     quality_fps: int = 18
     quality_width: int = 900
     quality_scale_flags: str = "lanczos"
