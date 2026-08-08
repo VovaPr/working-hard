@@ -406,6 +406,8 @@ def _convert_video_to_webp(
     continue_after_first_target,
     target_mid_tolerance_ratio,
 ):
+    allow_in_target_refine = bool(continue_after_first_target and not skip_preflight)
+
     def _reset_quality_window(seed_quality, *, step=4):
         seed_quality = max(min_quality, min(100, int(seed_quality)))
         lower = max(min_quality, seed_quality - step)
@@ -542,7 +544,7 @@ def _convert_video_to_webp(
                 pass
 
             should_finalize = True
-            if continue_after_first_target:
+            if allow_in_target_refine:
                 mid_miss_ratio = abs(size_bytes - target_mid_bytes) / max(target_mid_bytes, 1)
                 if size_bytes < target_mid_bytes:
                     lower_q = max(lower_q, current_quality)
