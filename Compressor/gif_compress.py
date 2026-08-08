@@ -368,7 +368,10 @@ def _run_video_preflight(
             f"q={int(best_point['quality'])}, width={int(best_point['width'])})"
         ),
         "estimate_mb": best_estimate_mb,
-        "converged": bool(target_min_mb <= best_estimate_mb <= target_max_mb),
+        "converged": bool(
+            target_min_mb <= best_estimate_mb <= target_max_mb
+            and abs(best_estimate_mb - target_mid_mb) / max(target_mid_mb, 0.01) <= float(preflight_close_ratio)
+        ),
     }
 
 
@@ -450,6 +453,12 @@ def _convert_video_to_webp(
         current_quality = int(preflight_plan["quality"])
         current_width = int(preflight_plan["width"])
         print(f"{version} | [video.webp] startup={preflight_plan['source']}")
+        if not preflight_plan.get("converged"):
+            print(
+                f"{version} | [video.webp] preflight not converged; skipping full encode "
+                f"(estimate={preflight_plan['estimate_mb']:.2f} MB, target={target_min_mb:.2f}-{target_max_mb:.2f} MB)"
+            )
+            return {"status": "failed", "output_webp": None}
 
     for attempt in range(1, max(1, int(max_attempts)) + 1):
         attempt_started_at = time.time()
