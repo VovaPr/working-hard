@@ -1,6 +1,7 @@
 """GIF facade module for batch processing and main pipeline delegation."""
 
 import json
+import math
 import os
 import shutil
 import subprocess
@@ -180,6 +181,56 @@ def _estimate_video_full_size_mb(*, proxy_probe, proxy_size_bytes, target_width,
     return proxy_mb, probe_scale, estimated_full_mb
 
 
+def _choose_proxy_probe_qualities(current_quality, *, min_quality, max_quality):
+    step = 8
+    candidates = [
+        int(current_quality),
+        int(current_quality) - step,
+        int(current_quality) + step,
+    ]
+    result = []
+    for quality in candidates:
+        quality = max(min_quality, min(max_quality, int(quality)))
+        if quality not in result:
+            result.append(quality)
+    return result
+
+
+def _estimate_quality_from_proxy_points(points, *, target_mid_mb, min_quality, max_quality):
+    if len(points) < 2:
+        return None
+
+    ordered = sorted(points, key=lambda item: item["quality"])
+    target_mid_mb = max(0.01, float(target_mid_mb))
+
+    def _fit_between(left, right):
+        if left["quality"] == right["quality"]:
+            return left["quality"]
+        left_log = math.log(max(0.01, float(left["estimate_mb"])))
+        right_log = math.log(max(0.01, float(right["estimate_mb"])))
+        if abs(right_log - left_log) < 1e-9:
+            return int(round((left["quality"] + right["quality"]) / 2.0))
+        target_log = math.log(target_mid_mb)
+        ratio = (target_log - left_log) / (right_log - left_log)
+        return int(round(left["quality"] + ratio * (right["quality"] - left["quality"])))
+
+    for left, right in zip(ordered, ordered[1:]):
+        left_mb = float(left["estimate_mb"])
+        right_mb = float(right["estimate_mb"])
+        if (left_mb <= target_mid_mb <= right_mb) or (right_mb <= target_mid_mb <= left_mb):
+            return max(min_quality, min(max_quality, _fit_between(left, right)))
+
+    if ordered[-1]["estimate_mb"] < target_mid_mb:
+        return max(min_quality, min(max_quality, int(ordered[-1]["quality"]) + 6))
+
+    if ordered[0]["estimate_mb"] > target_mid_mb:
+        return max(min_quality, min(max_quality, int(ordered[0]["quality"]) - 6))
+
+    left = ordered[0]
+    right = ordered[-1]
+    return max(min_quality, min(max_quality, _fit_between(left, right)))
+
+
 def _run_video_preflight(
     *,
     source_path,
@@ -205,91 +256,119 @@ def _run_video_preflight(
     target_mid_mb = (target_min_mb + target_max_mb) / 2.0
     current_quality = max(min_quality, min(100, int(start_quality)))
     current_width = max(min_width, int(start_width))
-    lower_q = min_quality
-    upper_q = 100
     best_estimate_mb = None
-    best_probe = None
+    best_point = None
+    probed_points = []
+    probed_keys = set()
 
-    def _next_quality(seed_quality):
+    def _set_quality_window(seed_quality, *, step=4):
         seed_quality = max(min_quality, min(100, int(seed_quality)))
-        return seed_quality, max(min_quality, seed_quality - 4), min(100, seed_quality + 4)
+        return seed_quality, max(min_quality, seed_quality - step), min(100, seed_quality + step)
 
     for probe_attempt in range(1, max(1, int(preflight_max_attempts)) + 1):
-        proxy_probe = _probe_video_proxy_size(
-            source_path=source_path,
-            ffmpeg_exe=ffmpeg_exe,
-            fps=target_fps,
-            width=current_width,
-            scale_flags=scale_flags,
-            quality=current_quality,
-            compression_level=compression_level,
-        )
-        if not proxy_probe or not proxy_probe.get("size_bytes"):
-            print(f"{version} | [video.webp] preflight failed: proxy encode unavailable")
-            break
+        probe_qualities = _choose_proxy_probe_qualities(current_quality, min_quality=min_quality, max_quality=100)
+        round_points = []
+        for probe_quality in probe_qualities:
+            key = (current_width, probe_quality)
+            if key in probed_keys:
+                continue
+            probed_keys.add(key)
+            proxy_probe = _probe_video_proxy_size(
+                source_path=source_path,
+                ffmpeg_exe=ffmpeg_exe,
+                fps=target_fps,
+                width=current_width,
+                scale_flags=scale_flags,
+                quality=probe_quality,
+                compression_level=compression_level,
+            )
+            if not proxy_probe or not proxy_probe.get("size_bytes"):
+                print(f"{version} | [video.webp] preflight failed: proxy encode unavailable")
+                continue
 
-        proxy_mb, probe_scale, estimated_full_mb = _estimate_video_full_size_mb(
-            proxy_probe=proxy_probe,
-            proxy_size_bytes=proxy_probe["size_bytes"],
-            target_width=current_width,
-            target_fps=target_fps,
-            proxy_full_scale_bias=proxy_full_scale_bias,
-        )
-        best_estimate_mb = estimated_full_mb
-        best_probe = proxy_probe
-        print(
-            f"{version} | [video.webp] preflight={probe_attempt} probe={proxy_mb:.2f} MB "
-            f"proxy={proxy_probe['width']}x? fps={proxy_probe['fps']} scale={probe_scale:.1f} "
-            f"est={estimated_full_mb:.2f} MB q={current_quality} width={current_width}"
-        )
-
-        within_target = target_min_mb <= estimated_full_mb <= target_max_mb
-        near_target = abs(estimated_full_mb - target_mid_mb) / max(target_mid_mb, 0.01) <= float(preflight_close_ratio)
-        if within_target and near_target:
-            return {
-                "quality": current_quality,
-                "width": current_width,
-                "source": (
-                    f"preflight proxy (attempts={probe_attempt}, est={estimated_full_mb:.2f} MB, "
-                    f"q={current_quality}, width={current_width})"
-                ),
+            proxy_mb, probe_scale, estimated_full_mb = _estimate_video_full_size_mb(
+                proxy_probe=proxy_probe,
+                proxy_size_bytes=proxy_probe["size_bytes"],
+                target_width=current_width,
+                target_fps=target_fps,
+                proxy_full_scale_bias=proxy_full_scale_bias,
+            )
+            point = {
+                "quality": probe_quality,
                 "estimate_mb": estimated_full_mb,
-                "converged": True,
+                "proxy_mb": proxy_mb,
+                "width": current_width,
+                "fps": proxy_probe["fps"],
+                "scale": probe_scale,
             }
+            probed_points.append(point)
+            round_points.append(point)
+            print(
+                f"{version} | [video.webp] preflight={probe_attempt} probe={proxy_mb:.2f} MB "
+                f"proxy={proxy_probe['width']}x? fps={proxy_probe['fps']} scale={probe_scale:.1f} "
+                f"est={estimated_full_mb:.2f} MB q={probe_quality} width={current_width}"
+            )
 
-        if estimated_full_mb < target_min_mb:
-            lower_q = max(lower_q, current_quality)
-            if current_width < max_width:
-                current_width = min(max_width, current_width + max(1, current_width // 20))
-                current_quality = max(min_quality, min(100, current_quality + 2))
-                continue
-        else:
-            upper_q = min(upper_q, current_quality)
-            if current_width > min_width:
-                current_width = max(min_width, int(current_width * float(resize_step_ratio)))
-                current_quality = max(min_quality, current_quality - 2)
-                continue
+            if target_min_mb <= estimated_full_mb <= target_max_mb:
+                best_estimate_mb = estimated_full_mb
+                best_point = point
+                break
 
-        if upper_q - lower_q <= 1:
+        if best_point is not None:
             break
 
-        current_quality, lower_q, upper_q = _next_quality((lower_q + upper_q) // 2)
+        if not probed_points:
+            break
 
-    if best_estimate_mb is None:
-        return None
+        best_point = min(probed_points, key=lambda item: abs(item["estimate_mb"] - target_mid_mb))
+        best_estimate_mb = best_point["estimate_mb"]
 
-    if best_probe is None:
+        next_quality = _estimate_quality_from_proxy_points(
+            probed_points,
+            target_mid_mb=target_mid_mb,
+            min_quality=min_quality,
+            max_quality=100,
+        )
+        if next_quality is not None:
+            current_quality = next_quality
+
+        best_point_is_near = abs(best_estimate_mb - target_mid_mb) / max(target_mid_mb, 0.01) <= float(preflight_close_ratio)
+        if best_point_is_near:
+            break
+
+        if best_estimate_mb < target_min_mb and current_width < max_width and current_quality >= 100:
+            current_width = min(max_width, current_width + max(1, current_width // 20))
+            current_quality, _, _ = _set_quality_window(current_quality + 2)
+            probed_points = []
+            probed_keys = set()
+            best_point = None
+            best_estimate_mb = None
+            continue
+
+        if best_estimate_mb > target_max_mb and current_width > min_width and current_quality <= min_quality:
+            current_width = max(min_width, int(current_width * float(resize_step_ratio)))
+            current_quality, _, _ = _set_quality_window(current_quality - 2)
+            probed_points = []
+            probed_keys = set()
+            best_point = None
+            best_estimate_mb = None
+            continue
+
+        if len(round_points) == 0:
+            break
+
+    if best_estimate_mb is None or best_point is None:
         return None
 
     return {
-        "quality": current_quality,
-        "width": current_width,
+        "quality": int(best_point["quality"]),
+        "width": int(best_point["width"]),
         "source": (
             f"preflight proxy (attempts={max(1, int(preflight_max_attempts))}, est={best_estimate_mb:.2f} MB, "
-            f"q={current_quality}, width={current_width})"
+            f"q={int(best_point['quality'])}, width={int(best_point['width'])})"
         ),
         "estimate_mb": best_estimate_mb,
-        "converged": False,
+        "converged": bool(target_min_mb <= best_estimate_mb <= target_max_mb),
     }
 
 
@@ -454,14 +533,6 @@ def _convert_video_to_webp(
             if next_quality != current_quality:
                 current_quality = next_quality
                 continue
-
-        if size_bytes < target_min_bytes:
-            current_quality, lower_q, upper_q = _reset_quality_window(current_quality + 2)
-            continue
-
-        if size_bytes > target_bytes:
-            current_quality, lower_q, upper_q = _reset_quality_window(current_quality - 2)
-            continue
 
         break
 
