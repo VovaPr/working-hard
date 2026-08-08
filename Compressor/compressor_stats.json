@@ -5232,5 +5232,41 @@
       "final_width": 1097,
       "final_height": 1558
     }
+  ],
+  "video_webp_stats": [
+    {
+      "profile": "fast",
+      "source_width": 720,
+      "source_height": 1280,
+      "source_fps_bucket": 30.0,
+      "source_duration_bucket": 25.0,
+      "source_size_bucket": 2.0,
+      "source_size_mb": 1.73,
+      "quality": 94,
+      "width": 714,
+      "result_size_mb": 13.63,
+      "encode_sec": 30.29,
+      "attempts": 1,
+      "success": true,
+      "timestamp": 1786167113.6249936,
+      "count": 1
+    },
+    {
+      "profile": "fast",
+      "source_width": 1080,
+      "source_height": 1920,
+      "source_fps_bucket": 30.0,
+      "source_duration_bucket": 10.0,
+      "source_size_bucket": 6.0,
+      "source_size_mb": 5.62,
+      "quality": 96,
+      "width": 866,
+      "result_size_mb": 13.65,
+      "encode_sec": 127.11,
+      "attempts": 5,
+      "success": true,
+      "timestamp": 1786167325.87393,
+      "count": 1
+    }
   ]
 }
