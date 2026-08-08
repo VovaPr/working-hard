@@ -1,11 +1,13 @@
 """GIF facade module for batch processing and main pipeline delegation."""
 
+import json
 import os
 import shutil
 import subprocess
 import time
 
 from gif_main_pipeline import balanced_compress_gif
+from video_webp_stats import VideoWebPStatsManager
 
 
 def _resolve_ffmpeg_executable():
@@ -29,11 +31,53 @@ def _resolve_ffmpeg_executable():
     return None
 
 
+def _resolve_ffprobe_executable(ffmpeg_exe):
+    ffprobe_exe = os.path.join(os.path.dirname(ffmpeg_exe), "ffprobe.exe")
+    return ffprobe_exe if os.path.exists(ffprobe_exe) else None
+
+
 def _describe_ffmpeg_source(ffmpeg_exe):
     lower = ffmpeg_exe.lower()
     if "winget" in lower:
         return "ffmpeg.exe (winget)"
     return os.path.basename(ffmpeg_exe) or "ffmpeg.exe"
+
+
+def _probe_video_metadata(source_path, ffprobe_exe):
+    cmd = [
+        ffprobe_exe,
+        "-v",
+        "error",
+        "-select_streams",
+        "v:0",
+        "-show_entries",
+        "stream=width,height,avg_frame_rate:format=duration",
+        "-of",
+        "json",
+        source_path,
+    ]
+    result = subprocess.run(cmd, capture_output=True, text=True, check=False)
+    if result.returncode != 0:
+        return None
+
+    try:
+        payload = json.loads(result.stdout)
+        stream = (payload.get("streams") or [{}])[0]
+        fmt = payload.get("format") or {}
+        width = int(stream.get("width"))
+        height = int(stream.get("height"))
+        fps_text = str(stream.get("avg_frame_rate") or "0/1")
+        fps_num, fps_den = fps_text.split("/", 1)
+        fps = float(fps_num) / max(1.0, float(fps_den))
+        duration = float(fmt.get("duration") or 0.0)
+        return {
+            "width": width,
+            "height": height,
+            "fps": fps,
+            "duration_sec": duration,
+        }
+    except Exception:
+        return None
 
 
 def _encode_video_to_webp(
@@ -79,13 +123,17 @@ def _convert_video_to_webp(
     width,
     scale_flags,
     initial_quality,
+    initial_width,
     compression_level,
     target_min_mb,
     target_max_mb,
     min_quality,
     min_width,
+    max_width,
     resize_step_ratio,
     max_attempts,
+    stats_mgr,
+    video_meta,
 ):
     output_webp = os.path.splitext(source_path)[0] + ".webp"
     if os.path.exists(output_webp):
@@ -99,12 +147,13 @@ def _convert_video_to_webp(
         src_size_mb = None
 
     current_quality = max(min_quality, min(100, int(initial_quality)))
-    current_width = max(min_width, int(width))
-    max_width = max(min_width, int(width))
+    current_width = max(min_width, int(initial_width))
+    max_width = max(min_width, int(max_width))
     target_bytes = int(float(target_max_mb) * 1024 * 1024)
     target_min_bytes = int(float(target_min_mb) * 1024 * 1024)
-    target_mid_bytes = int((target_min_bytes + target_bytes) / 2)
     best_size = None
+    lower_q = min_quality
+    upper_q = 100
 
     for attempt in range(1, max(1, int(max_attempts)) + 1):
         attempt_started_at = time.time()
@@ -144,43 +193,67 @@ def _convert_video_to_webp(
                 )
             else:
                 print(f"{version} | [video.webp] ✅ Success: {output_webp} ({elapsed:.2f} sec)")
+            if stats_mgr and video_meta:
+                stats_mgr.save_attempt(
+                    profile=video_meta["profile"],
+                    source_width=video_meta["width"],
+                    source_height=video_meta["height"],
+                    source_fps=video_meta["fps"],
+                    source_duration_sec=video_meta["duration_sec"],
+                    source_size_mb=src_size_mb or 0.0,
+                    quality=current_quality,
+                    width=current_width,
+                    result_size_mb=size_mb,
+                    encode_sec=elapsed,
+                    attempts=attempt,
+                    success=True,
+                )
             return {"status": "converted", "output_webp": output_webp}
 
-        if size_bytes > target_bytes:
-            overflow_ratio = size_bytes / max(1, target_bytes)
-            if current_quality > min_quality:
-                quality_drop = max(1, min(6, int((overflow_ratio - 1.0) * 8)))
-                next_quality = max(min_quality, current_quality - quality_drop)
-                if next_quality != current_quality:
-                    current_quality = next_quality
-                    continue
-
-            if current_width > min_width:
-                next_width = max(min_width, int(current_width * float(resize_step_ratio)))
-                if next_width >= current_width:
-                    next_width = current_width - 1
-                current_width = max(min_width, next_width)
-                continue
+        if size_bytes < target_min_bytes:
+            lower_q = max(lower_q, current_quality)
         else:
-            under_ratio = target_min_bytes / max(1, size_bytes)
-            if current_quality < 100:
-                quality_rise = max(1, min(5, int((under_ratio - 1.0) * 10)))
-                next_quality = min(100, current_quality + quality_rise)
-                if next_quality != current_quality:
-                    current_quality = next_quality
-                    continue
+            upper_q = min(upper_q, current_quality)
 
-            if current_width < max_width:
-                width_rise = max(1, int(current_width * (1.0 / max(0.5, float(resize_step_ratio)) - 1.0)))
-                next_width = min(max_width, current_width + width_rise)
-                if next_width != current_width:
-                    current_width = next_width
-                    continue
+        if upper_q - lower_q > 1:
+            next_quality = (lower_q + upper_q) // 2
+            if next_quality != current_quality:
+                current_quality = next_quality
+                continue
+
+        if size_bytes < target_min_bytes and current_width < max_width:
+            current_width = min(max_width, current_width + max(1, current_width // 20))
+            lower_q = min_quality
+            upper_q = 100
+            current_quality = 100
+            continue
+
+        if size_bytes > target_bytes and current_width > min_width:
+            current_width = max(min_width, int(current_width * float(resize_step_ratio)))
+            lower_q = min_quality
+            upper_q = 100
+            current_quality = max(min_quality, min(100, current_quality - 2))
+            continue
 
         break
 
     elapsed = time.time() - started_at
     final_mb = (best_size / (1024 * 1024)) if best_size else -1
+    if stats_mgr and video_meta and best_size is not None:
+        stats_mgr.save_attempt(
+            profile=video_meta["profile"],
+            source_width=video_meta["width"],
+            source_height=video_meta["height"],
+            source_fps=video_meta["fps"],
+            source_duration_sec=video_meta["duration_sec"],
+            source_size_mb=src_size_mb or 0.0,
+            quality=current_quality,
+            width=current_width,
+            result_size_mb=final_mb,
+            encode_sec=elapsed,
+            attempts=max(1, int(max_attempts)),
+            success=False,
+        )
     print(
         f"{version} | [video.webp] failed to reach {target_min_mb:.2f}-{target_max_mb:.2f} MB; "
         f"best={final_mb:.2f} MB ({elapsed:.2f} sec)"
@@ -218,6 +291,8 @@ def process_gifs(
         if not ffmpeg_exe:
             print(f"{version} | [video.webp] ffmpeg not found; skipping {len(mp4_paths)} MP4/MOV file(s)")
         else:
+            ffprobe_exe = _resolve_ffprobe_executable(ffmpeg_exe)
+            stats_mgr_video = VideoWebPStatsManager(stats_file, version)
             profile = str(getattr(gif_cfg.mp4_gif, "profile", "fast")).strip().lower()
             if profile == "quality":
                 fps = int(getattr(gif_cfg.mp4_gif, "quality_fps", 12))
@@ -237,6 +312,7 @@ def process_gifs(
             target_max_mb = float(getattr(gif_cfg.mp4_gif, "target_max_mb", 14.99))
             min_quality = int(getattr(gif_cfg.mp4_gif, "webp_min_quality", 42))
             min_width = int(getattr(gif_cfg.mp4_gif, "webp_min_width", 420))
+            max_width = int(getattr(gif_cfg.mp4_gif, "quality_width", width))
             resize_step_ratio = float(getattr(gif_cfg.mp4_gif, "webp_resize_step_ratio", 0.90))
             max_attempts = int(getattr(gif_cfg.mp4_gif, "webp_max_attempts", 10))
 
@@ -253,6 +329,36 @@ def process_gifs(
             delete_failed_count = 0
             delete_after_success = bool(getattr(gif_cfg.mp4_gif, "delete_source_after_success", True))
             for video_path in mp4_paths:
+                video_meta = None
+                if ffprobe_exe:
+                    video_meta = _probe_video_metadata(video_path, ffprobe_exe)
+                if not video_meta:
+                    video_meta = video_meta or {
+                        "width": width,
+                        "height": width,
+                        "fps": float(fps),
+                        "duration_sec": 0.0,
+                        "profile": profile,
+                    }
+                else:
+                    video_meta["profile"] = profile
+
+                startup_plan = stats_mgr_video.select_startup_plan(
+                    source_width=video_meta["width"],
+                    source_height=video_meta["height"],
+                    source_fps=video_meta["fps"],
+                    source_duration_sec=video_meta["duration_sec"],
+                    source_size_mb=(os.path.getsize(video_path) / (1024 * 1024)) if os.path.exists(video_path) else 0.0,
+                    profile=profile,
+                    target_min_mb=target_min_mb,
+                    target_max_mb=target_max_mb,
+                    default_quality=webp_quality,
+                    default_width=width,
+                )
+                initial_quality = startup_plan["quality"] if startup_plan else webp_quality
+                initial_width = startup_plan["width"] if startup_plan else width
+                if startup_plan:
+                    print(f"{version} | [video.webp] startup={startup_plan['source']}")
                 convert_result = _convert_video_to_webp(
                     video_path,
                     version=version,
@@ -260,14 +366,18 @@ def process_gifs(
                     fps=fps,
                     width=width,
                     scale_flags=scale_flags,
-                    initial_quality=webp_quality,
+                    initial_quality=initial_quality,
+                    initial_width=initial_width,
                     compression_level=compression_level,
                     target_min_mb=target_min_mb,
                     target_max_mb=target_max_mb,
                     min_quality=min_quality,
                     min_width=min_width,
+                    max_width=max_width,
                     resize_step_ratio=resize_step_ratio,
                     max_attempts=max_attempts,
+                    stats_mgr=stats_mgr_video,
+                    video_meta=video_meta,
                 )
                 if not convert_result:
                     failed_count += 1
