@@ -149,7 +149,7 @@ def _convert_video_to_webp(
         if size_bytes > target_bytes:
             overflow_ratio = size_bytes / max(1, target_bytes)
             if current_quality > min_quality:
-                quality_drop = max(3, min(14, int((overflow_ratio - 1.0) * 20)))
+                quality_drop = max(1, min(6, int((overflow_ratio - 1.0) * 8)))
                 next_quality = max(min_quality, current_quality - quality_drop)
                 if next_quality != current_quality:
                     current_quality = next_quality
@@ -164,7 +164,7 @@ def _convert_video_to_webp(
         else:
             under_ratio = target_min_bytes / max(1, size_bytes)
             if current_quality < 100:
-                quality_rise = max(2, min(10, int((under_ratio - 1.0) * 16)))
+                quality_rise = max(1, min(5, int((under_ratio - 1.0) * 10)))
                 next_quality = min(100, current_quality + quality_rise)
                 if next_quality != current_quality:
                     current_quality = next_quality
