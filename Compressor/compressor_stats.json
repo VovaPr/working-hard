@@ -5262,10 +5262,10 @@
       "quality": 96,
       "width": 866,
       "result_size_mb": 13.65,
-      "encode_sec": 127.11,
-      "attempts": 5,
+      "encode_sec": 75.82,
+      "attempts": 4,
       "success": true,
-      "timestamp": 1786167325.87393,
+      "timestamp": 1786168314.7809546,
       "count": 1
     }
   ]
