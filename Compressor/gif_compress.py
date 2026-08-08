@@ -189,6 +189,7 @@ def _convert_video_to_webp(
     max_attempts,
     stats_mgr,
     video_meta,
+    proxy_full_scale_bias,
 ):
     output_webp = os.path.splitext(source_path)[0] + ".webp"
     temp_output_webp = os.path.splitext(output_webp)[0] + ".tmp.webp"
@@ -228,7 +229,7 @@ def _convert_video_to_webp(
         probe_scale = (
             (video_meta["width"] / max(1, proxy_probe["width"]))
             * (video_meta["fps"] / max(1.0, proxy_probe["fps"]))
-            * float(getattr(gif_cfg.mp4_gif, "proxy_full_scale_bias", 3.0))
+            * float(proxy_full_scale_bias)
         )
         estimated_full_mb = proxy_mb * probe_scale
         ratio = target_mid_mb / max(0.01, estimated_full_mb)
@@ -484,6 +485,7 @@ def process_gifs(
                     max_attempts=max_attempts,
                     stats_mgr=stats_mgr_video,
                     video_meta=video_meta,
+                    proxy_full_scale_bias=float(getattr(gif_cfg.mp4_gif, "proxy_full_scale_bias", 3.0)),
                 )
                 if not convert_result:
                     failed_count += 1
